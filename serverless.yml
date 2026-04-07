@@ -1,0 +1,171 @@
+service: bedrock-agent-core-ops-mcp
+frameworkVersion: "4"
+
+provider:
+  name: aws
+  runtime: nodejs22.x
+  region: us-east-1
+  stage: dev
+  memorySize: 512
+  environment:
+    AWS_NODEJS_CONNECTION_REUSE_ENABLED: "1"
+    USE_MOCKS: "true"
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action: [bedrock:InvokeModel]
+          Resource: ["arn:aws:bedrock:${aws:region}::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0"]
+        - Effect: Allow
+          Action: [bedrock-agent-runtime:RetrieveAndGenerate, bedrock-agent-runtime:Retrieve]
+          Resource: ["arn:aws:bedrock:${aws:region}:${aws:accountId}:knowledge-base/*"]
+        - Effect: Allow
+          Action: [bedrock-agentcore:BatchCreateMemoryRecords, bedrock-agentcore:RetrieveMemoryRecords, bedrock-agentcore:ListMemoryRecords, bedrock-agentcore:BatchDeleteMemoryRecords]
+          Resource: [!Sub "arn:aws:bedrock-agentcore:${aws:region}:${aws:accountId}:runtime/${AgentCoreRuntime}"]
+        - Effect: Allow
+          Action: [logs:FilterLogEvents, logs:DescribeLogStreams, logs:StartQuery, logs:GetQueryResults]
+          Resource: ["*"]
+
+plugins:
+  - serverless-esbuild
+
+# ── Reusable URL list (YAML anchor) ────────────────────────────────────────
+# Add new services here only — agent + statusHub both pick them up automatically
+x-mcp-server-urls: &mcpUrls >
+  ${cf:${self:service}-${self:provider.stage}.WebDatabaseServiceLambdaUrl},
+  ${cf:${self:service}-${self:provider.stage}.InventoryServiceLambdaUrl},
+  ${cf:${self:service}-${self:provider.stage}.PricingServiceLambdaUrl},
+  ${cf:${self:service}-${self:provider.stage}.PimServiceLambdaUrl},
+  ${cf:${self:service}-${self:provider.stage}.DlqServiceLambdaUrl},
+  ${cf:${self:service}-${self:provider.stage}.GuideServiceLambdaUrl},
+  ${cf:${self:service}-${self:provider.stage}.SyncServiceLambdaUrl},
+  ${cf:${self:service}-${self:provider.stage}.VerificationServiceLambdaUrl},
+  ${cf:${self:service}-${self:provider.stage}.MemoryListServiceLambdaUrl},
+  ${cf:${self:service}-${self:provider.stage}.MemoryDeleteServiceLambdaUrl},
+  ${cf:${self:service}-${self:provider.stage}.L2DetectiveServiceLambdaUrl}
+
+functions:
+
+  # ── Agent Orchestrator ───────────────────────────────────────────
+  agentOrchestrator:
+    handler: src/agent.handler
+    timeout: 300
+    memorySize: 512
+    environment:
+      MCP_SERVER_URLS: *mcpUrls
+      AGENTCORE_RUNTIME_ID: !Ref AgentCoreRuntime
+      AGENTCORE_MEMORY_ID: !Ref AgentCoreRuntime # Assuming Memory ID is same as Runtime ID for this resource type
+    events:
+      - http:
+          path: chat
+          method: post
+
+  # ── Distributed MCP Tool Services ─────────────────────────────
+  webDatabaseService:
+    handler: src/mcp-server/WebDatabaseService.handler
+    url: true
+    memorySize: 256
+
+  inventoryService:
+    handler: src/mcp-server/InventoryService.handler
+    url: true
+    memorySize: 256
+
+  pricingService:
+    handler: src/mcp-server/PricingService.handler
+    url: true
+    memorySize: 256
+
+  pimService:
+    handler: src/mcp-server/PimService.handler
+    url: true
+    memorySize: 512
+
+  dlqService:
+    handler: src/mcp-server/DlqService.handler
+    url: true
+    memorySize: 256
+
+  guideService:
+    handler: src/mcp-server/GuideService.handler
+    url: true
+    memorySize: 512
+
+  syncService:
+    handler: src/mcp-server/SyncService.handler
+    url: true
+    memorySize: 512
+
+  verificationService:
+    handler: src/mcp-server/VerificationService.handler
+    url: true
+    memorySize: 256
+
+  memoryListService:
+    handler: src/mcp-server/MemoryListService.handler
+    url: true
+    memorySize: 256
+
+  memoryDeleteService:
+    handler: src/mcp-server/MemoryDeleteService.handler
+    url: true
+    memorySize: 128
+
+  l2DetectiveService:
+    handler: src/mcp-server/L2DetectiveService.handler
+    url: true
+    memorySize: 512
+    environment:
+      WEB_DB_LOG_GROUP: /aws/lambda/${self:service}-${self:provider.stage}-webDatabaseService
+
+  # ── specialized status hub ─────────────────────────────
+  statusHub:
+    handler: src/mcp-server/status-hub.handler
+    url:
+      cors: true
+    memorySize: 512
+    environment:
+      MCP_SERVER_URLS: *mcpUrls
+
+resources:
+  Resources:
+    AgentCoreRuntime:
+      Type: AWS::Bedrock::AgentCoreRuntime
+      Properties:
+        RuntimeName: OperationsHubRuntime-MultiMCP-v3
+        Description: "Multi-Lambda MCP Hub — episodic memory + isolated scaling"
+        MemoryConfiguration: { EpisodeTtl: 86400, LongTermMemoryEnabled: true }
+
+  Outputs:
+    StatusHubUrl:
+      Value: !GetAtt StatusHubLambdaFunctionUrl.FunctionUrl
+    WebDatabaseServiceLambdaUrl:
+      Value: !GetAtt WebDatabaseServiceLambdaFunctionUrl.FunctionUrl
+    InventoryServiceLambdaUrl:
+      Value: !GetAtt InventoryServiceLambdaFunctionUrl.FunctionUrl
+    PricingServiceLambdaUrl:
+      Value: !GetAtt PricingServiceLambdaFunctionUrl.FunctionUrl
+    PimServiceLambdaUrl:
+      Value: !GetAtt PimServiceLambdaFunctionUrl.FunctionUrl
+    DlqServiceLambdaUrl:
+      Value: !GetAtt DlqServiceLambdaFunctionUrl.FunctionUrl
+    GuideServiceLambdaUrl:
+      Value: !GetAtt GuideServiceLambdaFunctionUrl.FunctionUrl
+    SyncServiceLambdaUrl:
+      Value: !GetAtt SyncServiceLambdaFunctionUrl.FunctionUrl
+    VerificationServiceLambdaUrl:
+      Value: !GetAtt VerificationServiceLambdaFunctionUrl.FunctionUrl
+    MemoryListServiceLambdaUrl:
+      Value: !GetAtt MemoryListServiceLambdaFunctionUrl.FunctionUrl
+    MemoryDeleteServiceLambdaUrl:
+      Value: !GetAtt MemoryDeleteServiceLambdaFunctionUrl.FunctionUrl
+    L2DetectiveServiceLambdaUrl:
+      Value: !GetAtt L2DetectiveServiceLambdaFunctionUrl.FunctionUrl
+
+custom:
+  esbuild:
+    bundle: true
+    minify: true
+    sourcemap: true
+    target: node22
+    platform: node
