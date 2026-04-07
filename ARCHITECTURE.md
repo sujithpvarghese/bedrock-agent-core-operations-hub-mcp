@@ -36,6 +36,25 @@ The most advanced piece of the orchestrator is its fault-tolerance mechanism bui
 4. **Silent Loop:** The orchestrator re-fires the network request up to 3 times sequentially. 
 5. **Deterministic Escalation:** On the 4th failure, the orchestrator injects a synthetic "Failure Payload History" back into the LLM's context window. This strict prompting forces the AI to abandon the current strategy and immediately invoke `delegateToL2Detective`.
 
+### 🔄 The Hook Execution Loop
+
+```mermaid
+sequenceDiagram
+    participant LLM as Amazon Bedrock
+    participant Hook as agent.ts (SDK Hook)
+    participant MCP as Sync Microservice
+    
+    LLM->>Hook: Request: triggerAutoSync()
+    Hook->>MCP: HTTP POST /sync
+    MCP-->>Hook: 504 Gateway Timeout
+    Hook->>Hook: Stealth Increment: Retry 1/3 (Hidden from LLM)
+    Hook->>MCP: HTTP POST /sync
+    MCP-->>Hook: 504 Gateway Timeout
+    Hook->>Hook: Stealth Increment: Retry 3/3 (Max Reached)
+    Hook-->>LLM: Response: "Execution History Payload... SYSTEM OVERRIDE: Escalate to L2"
+    LLM->>Hook: Request: delegateToL2Detective()
+```
+
 ---
 
 ## 🕵️‍♂️ Agent-to-Agent (A2A) Encapsulation
@@ -43,6 +62,25 @@ The most advanced piece of the orchestrator is its fault-tolerance mechanism bui
 **Problem:** Giving a single multi-purpose LLM access to 50 tools leads to massive context bloat (expensive token usage) and high risk of "Tool Hallucination" (using a Jira checking tool when asked to check the price).
 
 **Solution:** The principle of Least Privilege via Sub-Agents.
+
+### 🛡️ Security Boundaries (Component View)
+
+```mermaid
+graph TD
+    subgraph "Main Agent Environment (Least Privilege)"
+        TriageAgent[Bedrock Triage Agent]
+        TriageAgent -->|Read Only| WebDB(Web Database)
+        TriageAgent -->|Escalation Only| Delegate[delegateToL2Detective]
+    end
+
+    subgraph "Secure Enclave (L2 Network)"
+        Delegate -->|Invoke| SubAgent[L2 Detective Agent]
+        SubAgent -->|Deep Infra Access| CloudWatchLogs(CloudWatch)
+        SubAgent -->|Commit Access| Jira(Jira Issues)
+    end
+    
+    style SubAgent fill:#f9f,stroke:#333,stroke-width:2px
+```
 
 *   **The Triage Agent:** Only knows how to read web databases, pull inventory, and trigger syncs. It has *no idea* what CloudWatch or Jira are.
 *   **The L2 Detective Agent (`L2DetectiveService.ts`):** An independent instantiation of a Bedrock Agent. It holds the private registry of infrastructure tools (`checkCloudTrailLogs`, `checkJiraCommits`). 

@@ -12,35 +12,52 @@ This project automates the entire investigation using Amazon Bedrock. It acts as
 3. **Remediates** safe, transient issues autonomously (e.g., triggering a manual catalog sync).
 4. **Escalates** complex infrastructure failures to a specialized L2 Agent.
 
-## 🧭 Execution Flow
+## 🧭 How It Behaves (Execution Flow)
 
-```mermaid
-graph TD
-    User([Support Engineer Query]) --> Orchestrator[Triage Agent]
-    
-    Orchestrator -->|1. Memory Check| Memory[(Episodic Memory)]
-    Orchestrator -->|2. Investigate| ToolMesh[Distributed Services <br> Inventory, Price, Web DB]
-    
-    ToolMesh -->|Discrepancy Found| Remediate[Autonomous Remediation<br> Trigger Sync]
-    
-    Remediate -- Success --> Verify[Verification] --> Final[Report Success]
-    Remediate -- 3 Transient Retries Failed --> Escalate[Escalate to L2 Agent]
-    
-    Escalate --> CW[Analyze CloudWatch Logs] --> FinalReport[Detailed RCA Report]
+```text
+User: "Why is the price for prod_666 wrong?"
+   ↓
+Agent (Planner)
+   ↓
+Step 1: Check Memory (Has this failed before?)
+   ↓
+Step 2: MCP Tool Execution (Query Live DB & Pricing Engine)
+   ↓
+Step 3: Discrepancy Found ($0.00 vs $24.99)
+   ↓
+Step 4: Auto-Remediate (Trigger Backend Sync)
+   ↓
+Final Response (Fix confirmed & verified)
 ```
 
-## 🎯 Real-World Demo Scenario
+## 🎯 1. The Concrete Example
 
 **User Query:**
 > *"Why is the price for product 'prod_666' showing as $0.00 on the live site?"*
 
-**Agent Execution:**
-1. **Diagnose:** Queries the Live Web Database -> Price is `$0.00`.
-2. **Investigate:** Queries the internal Pricing Engine -> Price should be `$24.99`.
+**Step-by-Step Intelligence:**
+1. **Diagnose:** Queries the Live Web Database -> Actual Price is `$0.00`.
+2. **Investigate:** Queries the internal Pricing Engine -> Expected Price is `$24.99`.
 3. **Safety Check:** Evaluates if `prod_666` is a promotional "Gift Item" (which allows $0 pricing). It is not.
 4. **Remediate:** Safely triggers a backend Pricing Sync.
 5. **Verify:** Re-queries the live site to confirm the update succeeded.
-6. **Final Output:** *"Price discrepancy found. Upstream sync triggered successfully. The live site now correctly reflects $24.99 for prod_666."*
+
+## 📄 2. Real Execution Proof (Output)
+
+```json
+{
+  "status": "REMEDIATED",
+  "discrepancyType": "Pricing Mismatch",
+  "diagnostics": {
+    "webDatabaseState": 0.00,
+    "upstreamPricingEngine": 24.99,
+    "giftItemOverride": false
+  },
+  "actionTaken": "Triggered manual pricing sync via MCP gateway",
+  "verification": "Live site successfully updated to 24.99",
+  "finalResponse": "Price discrepancy found and repaired. The live site now correctly reflects $24.99 for prod_666."
+}
+```
 
 ---
 
