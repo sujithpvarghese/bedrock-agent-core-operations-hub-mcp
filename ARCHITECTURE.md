@@ -15,12 +15,12 @@ Unlike traditional monolithic agents that run all logic inside a single prompt o
 
 ```mermaid
 graph TD
-    Agent[agent.ts (Main Orchestrator)] -->|MCP HTTP Call| HTTP_Gateway[API Gateway]
+    Agent["agent.ts (Main Orchestrator)"] -->|"MCP HTTP Call"| HTTP_Gateway["API Gateway"]
     
-    HTTP_Gateway --> InvLambda(Inventory MCP Lambda)
-    HTTP_Gateway --> PriceLambda(Pricing MCP Lambda)
-    HTTP_Gateway --> SyncLambda(Sync Tool Lambda)
-    HTTP_Gateway --> SubAgent[L2 Detective Sub-Agent]
+    HTTP_Gateway --> InvLambda("Inventory MCP Lambda")
+    HTTP_Gateway --> PriceLambda("Pricing MCP Lambda")
+    HTTP_Gateway --> SyncLambda("Sync Tool Lambda")
+    HTTP_Gateway --> SubAgent["L2 Detective Sub-Agent"]
 ```
 
 ---
@@ -44,15 +44,15 @@ sequenceDiagram
     participant Hook as agent.ts (SDK Hook)
     participant MCP as Sync Microservice
     
-    LLM->>Hook: Request: triggerAutoSync()
+    LLM->>Hook: Request triggerAutoSync()
     Hook->>MCP: HTTP POST /sync
     MCP-->>Hook: 504 Gateway Timeout
-    Hook->>Hook: Stealth Increment: Retry 1/3 (Hidden from LLM)
+    Hook->>Hook: Stealth Increment Retry 1/3
     Hook->>MCP: HTTP POST /sync
     MCP-->>Hook: 504 Gateway Timeout
-    Hook->>Hook: Stealth Increment: Retry 3/3 (Max Reached)
-    Hook-->>LLM: Response: "Execution History Payload... SYSTEM OVERRIDE: Escalate to L2"
-    LLM->>Hook: Request: delegateToL2Detective()
+    Hook->>Hook: Stealth Increment Retry 3/3
+    Hook-->>LLM: Response Escalate to L2
+    LLM->>Hook: Request delegateToL2Detective()
 ```
 
 ---
@@ -67,16 +67,16 @@ sequenceDiagram
 
 ```mermaid
 graph TD
-    subgraph "Main Agent Environment (Least Privilege)"
-        TriageAgent[Bedrock Triage Agent]
-        TriageAgent -->|Read Only| WebDB(Web Database)
-        TriageAgent -->|Escalation Only| Delegate[delegateToL2Detective]
+    subgraph MainAgent ["Main Agent Environment (Least Privilege)"]
+        TriageAgent["Bedrock Triage Agent"]
+        TriageAgent -->|"Read Only"| WebDB("Web Database")
+        TriageAgent -->|"Escalation Only"| Delegate["delegateToL2Detective"]
     end
 
-    subgraph "Secure Enclave (L2 Network)"
-        Delegate -->|Invoke| SubAgent[L2 Detective Agent]
-        SubAgent -->|Deep Infra Access| CloudWatchLogs(CloudWatch)
-        SubAgent -->|Commit Access| Jira(Jira Issues)
+    subgraph SecureEnclave ["Secure Enclave (L2 Network)"]
+        Delegate -->|"Invoke"| SubAgent["L2 Detective Agent"]
+        SubAgent -->|"Deep Infra Access"| CloudWatchLogs("CloudWatch")
+        SubAgent -->|"Commit Access"| Jira("Jira Issues")
     end
     
     style SubAgent fill:#f9f,stroke:#333,stroke-width:2px
