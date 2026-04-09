@@ -98,17 +98,33 @@ function buildSystemPrompt(memories: string): string {
 // Static Discovery: Loads tools from registry, connects on-demand
 // ─────────────────────────────────────────────
 async function buildAgent(systemPrompt: string, toolsCalled: string[]): Promise<Agent> {
-  const mcpUrls = config.MCP_SERVER_URLS;
+  const serverMap = config.MCP_SERVER_URLS;
   const serviceKeys = Object.keys(TOOL_METADATA);
 
-  const tools: FunctionTool[] = serviceKeys.map((serviceKey, index) => {
+  // Determine the best JSON Schema target based on the model ID
+  // Claude = jsonSchema7, Nova = jsonSchema202012, Llama = openapi3
+  let schemaTarget: any = "jsonSchema7";
+  if (config.AGENT_MODEL_ID.includes("nova")) schemaTarget = "jsonSchema202012";
+  else if (config.AGENT_MODEL_ID.includes("llama")) schemaTarget = "openapi3";
+
+  const tools: FunctionTool[] = serviceKeys.map((serviceKey) => {
     const meta = TOOL_METADATA[serviceKey];
-    const serviceUrl = mcpUrls[index];
+    const serviceUrl = serverMap.get(serviceKey);
+
+    // Fail-fast validation for Production
+    if (!config.USE_MOCKS && !serviceUrl) {
+      logger.error("MISSING_SERVICE_URL", { serviceKey, toolName: meta.name });
+    }
+
+    const inputSchema = zodToJsonSchema(meta.inputSchema, {
+      target: schemaTarget,
+      additionalProperties: false
+    } as any) as any;
 
     return new FunctionTool({
       name: meta.name,
       description: meta.description,
-      inputSchema: zodToJsonSchema(meta.inputSchema) as any,
+      inputSchema,
       callback: async (input: any) => {
         if (config.USE_MOCKS) {
           logger.info(`TOOL_SIMULATE_${meta.name}`, { input });
@@ -153,7 +169,7 @@ async function buildAgent(systemPrompt: string, toolsCalled: string[]): Promise<
     });
   });
 
-  logger.info("AGENT_INIT_STATIC", { toolCount: tools.length, serverCount: mcpUrls.length, mode: config.USE_MOCKS ? "MOCK" : "MCP" });
+  logger.info("AGENT_INIT_STATIC", { toolCount: tools.length, serverCount: serverMap.size, mode: config.USE_MOCKS ? "MOCK" : "MCP" });
 
   const agent = new Agent({
     name: "OperationsHub",
@@ -176,7 +192,7 @@ async function buildAgent(systemPrompt: string, toolsCalled: string[]): Promise<
     });
 
     const now = new Date();
-    const day = now.getDay(); 
+    const day = now.getDay();
     const hour = now.getHours();
     const isFridayAfterFour = (day === 5 && hour >= 16);
     const isWeekend = (day === 6 || day === 0);
@@ -221,9 +237,9 @@ async function buildAgent(systemPrompt: string, toolsCalled: string[]): Promise<
         event.retry = true;
         // Inject a hint for the agent to report the retry
         if (event.result && (event.result as any).content) {
-          (event.result as any).content.push({ 
-            type: "text", 
-            text: `\n\n[SYSTEM_NOTE: This operation was retried due to a transient ${event.error?.message || "error"}. It has now succeeded.]` 
+          (event.result as any).content.push({
+            type: "text",
+            text: `\n\n[SYSTEM_NOTE: This operation was retried due to a transient ${event.error?.message || "error"}. It has now succeeded.]`
           });
         }
       }
@@ -251,7 +267,7 @@ function extractFinalStatus(summary: string): string {
 // Public agent interface
 // ─────────────────────────────────────────────
 export const agent = {
-   run: async ({ userPrompt }: { userPrompt: string }) => {
+  run: async ({ userPrompt }: { userPrompt: string }) => {
     const toolsCalled: string[] = [];
     const productId = extractProductId(userPrompt);
     const memories = await getRelevantMemories(productId);

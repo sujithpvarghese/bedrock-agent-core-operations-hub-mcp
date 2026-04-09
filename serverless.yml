@@ -5,11 +5,11 @@ provider:
   name: aws
   runtime: nodejs22.x
   region: us-east-1
-  stage: dev
+  stage: ${opt:stage, 'dev'}
   memorySize: 512
   environment:
     AWS_NODEJS_CONNECTION_REUSE_ENABLED: "1"
-    USE_MOCKS: "true"
+    USE_MOCKS: ${self:custom.useMocks.${self:provider.stage}}
   iam:
     role:
       statements:
@@ -32,17 +32,17 @@ plugins:
 # ── Reusable URL list (YAML anchor) ────────────────────────────────────────
 # Add new services here only — agent + statusHub both pick them up automatically
 x-mcp-server-urls: &mcpUrls >
-  ${cf:${self:service}-${self:provider.stage}.WebDatabaseServiceLambdaUrl},
-  ${cf:${self:service}-${self:provider.stage}.InventoryServiceLambdaUrl},
-  ${cf:${self:service}-${self:provider.stage}.PricingServiceLambdaUrl},
-  ${cf:${self:service}-${self:provider.stage}.PimServiceLambdaUrl},
-  ${cf:${self:service}-${self:provider.stage}.DlqServiceLambdaUrl},
-  ${cf:${self:service}-${self:provider.stage}.GuideServiceLambdaUrl},
-  ${cf:${self:service}-${self:provider.stage}.SyncServiceLambdaUrl},
-  ${cf:${self:service}-${self:provider.stage}.VerificationServiceLambdaUrl},
-  ${cf:${self:service}-${self:provider.stage}.MemoryListServiceLambdaUrl},
-  ${cf:${self:service}-${self:provider.stage}.MemoryDeleteServiceLambdaUrl},
-  ${cf:${self:service}-${self:provider.stage}.L2DetectiveServiceLambdaUrl}
+  webDatabaseService:${cf:${self:service}-${self:provider.stage}.WebDatabaseServiceLambdaUrl},
+  inventoryService:${cf:${self:service}-${self:provider.stage}.InventoryServiceLambdaUrl},
+  pricingService:${cf:${self:service}-${self:provider.stage}.PricingServiceLambdaUrl},
+  pimService:${cf:${self:service}-${self:provider.stage}.PimServiceLambdaUrl},
+  dlqService:${cf:${self:service}-${self:provider.stage}.DlqServiceLambdaUrl},
+  guideService:${cf:${self:service}-${self:provider.stage}.GuideServiceLambdaUrl},
+  syncService:${cf:${self:service}-${self:provider.stage}.SyncServiceLambdaUrl},
+  verificationService:${cf:${self:service}-${self:provider.stage}.VerificationServiceLambdaUrl},
+  memoryListService:${cf:${self:service}-${self:provider.stage}.MemoryListServiceLambdaUrl},
+  memoryDeleteService:${cf:${self:service}-${self:provider.stage}.MemoryDeleteServiceLambdaUrl},
+  l2DetectiveService:${cf:${self:service}-${self:provider.stage}.L2DetectiveServiceLambdaUrl}
 
 functions:
 
@@ -163,6 +163,9 @@ resources:
       Value: !GetAtt L2DetectiveServiceLambdaFunctionUrl.FunctionUrl
 
 custom:
+  useMocks:
+    dev: "true"
+    prod: "false"
   esbuild:
     bundle: true
     minify: true
