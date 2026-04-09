@@ -19,7 +19,7 @@ export const logic = async ({ skuId, productId }: any) => {
       })}]
     };
   }
-  // TODO: Real inventory service call using lookupId
+  // Production: Replace with actual Inventory Management System (IMS) API call
   return { content: [{ type: "text", text: JSON.stringify({ skuId: lookupId, status: "AVAILABLE" })}] };
 };
 

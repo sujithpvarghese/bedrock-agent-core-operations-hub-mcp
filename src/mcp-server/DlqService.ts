@@ -12,7 +12,7 @@ export const logic = async ({ productId }: any) => {
     }
     return { content: [{ type: "text", text: JSON.stringify({ inDLQ: false }) }] };
   }
-  // TODO: SQS/DLQ check
+  // Production: Replace with actual Amazon SQS ReceiveMessage or CloudWatch Metrics check
   return { content: [{ type: "text", text: JSON.stringify({ productId, inDLQ: false })}] };
 };
 
