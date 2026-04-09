@@ -3,6 +3,8 @@ import { TOOL_METADATA } from "../mcp-tools";
 import { Agent, BedrockModel, FunctionTool } from "@strands-agents/sdk";
 import { CloudWatchLogsClient, FilterLogEventsCommand } from "@aws-sdk/client-cloudwatch-logs";
 import { logger } from "../logger";
+import { config } from "../config";
+
 
 /**
  * L2 Detective Sub-Agent — MCP Server
@@ -91,8 +93,8 @@ const checkJiraCommits = new FunctionTool({
 const l2DetectiveAgent = new Agent({
   name: "L2Detective",
   model: new BedrockModel({
-    modelId: "anthropic.claude-3-5-sonnet-20241022-v2:0",
-    region: process.env.AWS_REGION ?? "us-east-1",
+    modelId: config.L2_MODEL_ID,
+    region: config.AWS_REGION,
   }),
   tools: [checkCloudTrailLogs, checkJiraCommits],
   systemPrompt: `You are an L2 Cloud Infrastructure Detective. You find the root cause of systemic outages.
@@ -107,6 +109,7 @@ const l2DetectiveAgent = new Agent({
 // ─────────────────────────────────────────────
 export const logic = async (input: any) => {
   const { errorCode, targetProduct } = input;
+  logger.info("MCP_TOOL_CALL_delegateToL2Detective", { errorCode, targetProduct });
   logger.info("A2A_HANDOFF", { to: "L2Detective", errorCode, targetProduct });
   const investigation = await l2DetectiveAgent.invoke(
     `Find root cause for error: ${errorCode} on ${targetProduct ?? "system"}`

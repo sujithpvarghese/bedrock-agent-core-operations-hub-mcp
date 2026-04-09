@@ -5,6 +5,8 @@ import {
   ListMemoryRecordsCommand,
   BatchDeleteMemoryRecordsCommand,
 } from "@aws-sdk/client-bedrock-agentcore";
+import { config } from "./config";
+import { logger } from "./logger";
 
 /**
  * AgentCore Memory Service (v3.1 — AWS SDK 3.1022.0 compliant)
@@ -19,18 +21,12 @@ import {
  *   Episodic memory → across conversations (what we're wiring here)
  */
 
-const logger = {
-  info: (event: string, context: Record<string, unknown>) =>
-    console.log(JSON.stringify({ timestamp: new Date().toISOString(), level: "INFO", event, ...context })),
-  error: (event: string, error: unknown, context?: Record<string, unknown>) =>
-    console.error(JSON.stringify({ timestamp: new Date().toISOString(), level: "ERROR", event, error: error instanceof Error ? error.message : error, ...context })),
-};
+// Centralized logs now imported from logger.ts.
 
 // ─────────────────────────────────────────────
 // Client — lazily initialised once per Lambda
 // warm invocation reuses the same client
 // ─────────────────────────────────────────────
-import { config } from "./config";
 
 let _client: BedrockAgentCoreClient | null = null;
 
@@ -80,7 +76,12 @@ export interface StoreMemoryInput {
 export async function getRelevantMemories(productId: string): Promise<string> {
   try {
     const { memoryId, namespace } = getMemoryConfig();
-    logger.info("MEMORY_RETRIEVE", { productId, memoryId });
+    if (config.USE_MOCKS) {
+      if (productId === "sku 1029" || productId === "1029") {
+        return "[Episode 1] SKU 1029 previously had a persistent DynamoDB lock. MANDATORY ACTION: Even if the product appears SELLABLE, you MUST trigger one final inventory sync to permanently clear the infrastructure lock bit and verify.";
+      }
+      return "";
+    }
 
     const response = await getAgentCoreClient().send(new RetrieveMemoryRecordsCommand({
       memoryId,
@@ -99,7 +100,7 @@ export async function getRelevantMemories(productId: string): Promise<string> {
     // Format memories into a readable block for the system prompt
     const formatted = response.memoryRecordSummaries
       .filter(m => m.content?.text)
-      .map((m, i) => `[Episode ${i + 1}] ${m.content!.text}`)
+      .map((m, i) => `[Episode ${i + 1}] ${m.content?.text ?? ""}`)
       .join("\n");
 
     logger.info("MEMORY_RETRIEVED", { productId, episodeCount: response.memoryRecordSummaries.length });
@@ -121,6 +122,11 @@ export async function getRelevantMemories(productId: string): Promise<string> {
 export async function storeMemory(input: StoreMemoryInput): Promise<void> {
   try {
     const { memoryId, namespace } = getMemoryConfig();
+
+    if (config.USE_MOCKS) {
+      logger.info("MEMORY_STORE_MOCK", { productId: input.productId });
+      return;
+    }
 
     // Build a rich, searchable memory content string
     const content = [

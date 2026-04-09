@@ -15,7 +15,7 @@ provider:
       statements:
         - Effect: Allow
           Action: [bedrock:InvokeModel]
-          Resource: ["arn:aws:bedrock:${aws:region}::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0"]
+          Resource: ["arn:aws:bedrock:${aws:region}::foundation-model/us.anthropic.claude-sonnet-4-5-20250929-v1:0"]
         - Effect: Allow
           Action: [bedrock-agent-runtime:RetrieveAndGenerate, bedrock-agent-runtime:Retrieve]
           Resource: ["arn:aws:bedrock:${aws:region}:${aws:accountId}:knowledge-base/*"]

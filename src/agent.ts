@@ -8,6 +8,7 @@ import {
 } from "@strands-agents/sdk";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { zodToJsonSchema } from "zod-to-json-schema";
 import {
   getRelevantMemories,
   storeMemory,
@@ -17,12 +18,14 @@ import { config } from "./config";
 import { logger } from "./logger";
 import { TOOL_METADATA } from "./mcp-tools";
 
+
 // ─────────────────────────────────────────────
 // Model
 // ─────────────────────────────────────────────
 const model = new BedrockModel({
-  modelId: "anthropic.claude-3-5-sonnet-20241022-v2:0",
+  modelId: config.AGENT_MODEL_ID,
   region: config.AWS_REGION,
+  stream: false,
 });
 
 // ─────────────────────────────────────────────
@@ -63,7 +66,7 @@ const BASE_SYSTEM_PROMPT = `
 
   4. VERIFY: After ALL syncs are complete, ALWAYS call verifyWebState to confirm the fix worked.
 
-  5. SUMMARIZE: Report what the web showed, what the user flagged, what upstream confirmed, what was synced, and the final verified state.
+  5. SUMMARIZE: Report what the web showed, what the user flagged, what upstream confirmed, what was synced, and the final verified state. IMPORTANT: If you encountered a transient network error (like a 503 or timeout) that required an automatic retry, explicitly mention it in your summary to confirm the self-healing worked.
 
   MEMORY GUIDANCE: If episodic memory is provided below, use it to:
   - Skip investigation steps you already know the answer to
@@ -75,7 +78,6 @@ const BASE_SYSTEM_PROMPT = `
 // ─────────────────────────────────────────────
 // buildSystemPrompt
 // Injects real retrieved memories into the prompt.
-// If no memories exist — returns base prompt unchanged.
 // ─────────────────────────────────────────────
 function buildSystemPrompt(memories: string): string {
   if (!memories) return BASE_SYSTEM_PROMPT;
@@ -89,16 +91,16 @@ function buildSystemPrompt(memories: string): string {
   Use the above history to skip unnecessary steps and apply known fixes faster.
   ─────────────────────────────────────`;
 }
+// Simulation logic moved to src/mcp-server/ files.
 
 // ─────────────────────────────────────────────
 // buildAgent
 // Static Discovery: Loads tools from registry, connects on-demand
 // ─────────────────────────────────────────────
-async function buildAgent(systemPrompt: string): Promise<Agent> {
+async function buildAgent(systemPrompt: string, toolsCalled: string[]): Promise<Agent> {
   const mcpUrls = config.MCP_SERVER_URLS;
   const serviceKeys = Object.keys(TOOL_METADATA);
 
-  // 1. Build tool list from static metadata
   const tools: FunctionTool[] = serviceKeys.map((serviceKey, index) => {
     const meta = TOOL_METADATA[serviceKey];
     const serviceUrl = mcpUrls[index];
@@ -106,8 +108,25 @@ async function buildAgent(systemPrompt: string): Promise<Agent> {
     return new FunctionTool({
       name: meta.name,
       description: meta.description,
-      inputSchema: meta.inputSchema as any,
+      inputSchema: zodToJsonSchema(meta.inputSchema) as any,
       callback: async (input: any) => {
+        if (config.USE_MOCKS) {
+          logger.info(`TOOL_SIMULATE_${meta.name}`, { input });
+          // Dynamically import the logic from the service file
+          // e.g. webDatabaseService -> ./mcp-server/WebDatabaseService
+          const fileName = serviceKey.charAt(0).toUpperCase() + serviceKey.slice(1);
+          const { logic } = await import(`./mcp-server/${fileName}`);
+          const result = await logic(input);
+          return result.content || [{ type: "text", text: JSON.stringify(result) }];
+        }
+
+        if (!serviceUrl) {
+          logger.error(`TOOL_CONFIG_MISSING_${meta.name}`, { serviceKey });
+          return [{
+            type: "text",
+            text: `Tool error: Service URL for ${meta.name} is not configured.`
+          }];
+        }
         try {
           const mcpUrl = new URL(serviceUrl);
           const transport = new StreamableHTTPClientTransport(mcpUrl);
@@ -134,7 +153,7 @@ async function buildAgent(systemPrompt: string): Promise<Agent> {
     });
   });
 
-  logger.info("AGENT_INIT_STATIC", { toolCount: tools.length, serverCount: mcpUrls.length });
+  logger.info("AGENT_INIT_STATIC", { toolCount: tools.length, serverCount: mcpUrls.length, mode: config.USE_MOCKS ? "MOCK" : "MCP" });
 
   const agent = new Agent({
     name: "OperationsHub",
@@ -143,47 +162,38 @@ async function buildAgent(systemPrompt: string): Promise<Agent> {
     tools: tools,
   });
 
-  // 🕵️ ADD HOOKS TO PEEK INSIDE THE BLACK BOX
+  // Hooks
   agent.addHook(MessageAddedEvent, (event) => {
     logger.info("AGENT_MESSAGE_ADDED", { message: event.message });
   });
 
   agent.addHook(BeforeToolCallEvent, (event) => {
-    // 🕵️ LOG EVERY TOOL START
+    toolsCalled.push(event.toolUse.name);
     logger.info("AGENT_TOOL_START", {
       tool: event.toolUse.name,
       id: event.toolUse.toolUseId,
       input: event.toolUse.input
     });
 
-    // 🛑 HARD-CORE SAFETY INTERLOCK: "No Change Weekend"
-    // Block sync tools from Friday 4 PM through Monday morning
     const now = new Date();
-    const day = now.getDay(); // Sunday=0, Friday=5, Saturday=6
+    const day = now.getDay(); 
     const hour = now.getHours();
-
     const isFridayAfterFour = (day === 5 && hour >= 16);
     const isWeekend = (day === 6 || day === 0);
 
     if (event.toolUse.name === "triggerAutoSync" && (isFridayAfterFour || isWeekend)) {
-      logger.warn("SAFETY_BLOCK_TRIGGERED", { tool: event.toolUse.name, day, hour });
-
-      // Setting 'cancel' to a string will stop the tool execution 
-      // AND tell the AI WHY it was stopped so it can explain to the user.
-      event.cancel = "OPERATIONAL_POLICY_ERROR: Automated syncs are strictly forbidden from Friday 4 PM through Monday morning to prevent unmonitored weekend changes. Inform the user of this policy.";
+      event.cancel = "OPERATIONAL_POLICY_ERROR: Automated syncs are strictly forbidden from Friday 4 PM through Monday morning.";
     }
   });
 
   agent.addHook(AfterToolCallEvent, (event) => {
-    // 🕵️ LOG EVERY TOOL END
     logger.info("AGENT_TOOL_END", {
       tool: event.toolUse.name,
       id: event.toolUse.toolUseId,
       result: event.result
     });
 
-    // 🎁 HARD-CORE ENRICHMENT: The "Gift Item" Pattern
-    // ... (logic for gift item enrichment)
+    // Gift Item Logic
     if (event.toolUse.name === "checkPricing") {
       const resultText = JSON.stringify(event.result);
       const isZero = resultText.includes('"price": 0') || resultText.includes('"price": 0.0');
@@ -191,59 +201,30 @@ async function buildAgent(systemPrompt: string): Promise<Agent> {
       const isGiftSku = productId?.startsWith("GFT-") || productId?.startsWith("SAMPLE-");
 
       if (isZero && isGiftSku) {
-        logger.info("VALID_GIFT_ENRICHMENT_APPLIED", { productId });
         (event.result as any).content[0].text +=
-          "\n\n🚨 BUSINESS_HINT: This product is confirmed as a 'Gift Item' or 'Sample'. A 0.00 price is EXPECTED. DO NOT trigger a sync or report this as a data discrepancy.";
-      }
-      else if (isZero && !isGiftSku) {
-        logger.warn("POTENTIAL_PRICING_BUG_DETECTED", { productId });
+          "\n\n🚨 BUSINESS_HINT: This is a 'Gift Item'. A 0.00 price is EXPECTED. DO NOT sync.";
       }
     }
 
-    // 🔧 SELF-HEALING: Stateful Automatic Tool Retry (Max 3)
-    // If a tool fails due to a transient network error, we retry without telling the AI.
+    // Transient Error Logic
     const isTransientError =
       event.error?.message.includes("TIMEOUT") ||
       event.error?.message.includes("504") ||
-      event.error?.message.includes("503") ||
-      JSON.stringify(event.result).includes("TIMEOUT");
+      event.error?.message.includes("503");
 
     if (isTransientError) {
-      // Use the internal 'appState' to track retries for this specific call ID
       const retryKey = `retry_count_${event.toolUse.toolUseId}`;
       const currentRetries = (event.agent.appState.get(retryKey) as number) ?? 0;
 
       if (currentRetries < 3) {
-        logger.warn("AUTO_RETRY_TRIGGERED", {
-          tool: event.toolUse.name,
-          attempt: currentRetries + 1
-        });
-
-        // Increment the count in our internal state for the next turn
         event.agent.appState.set(retryKey, currentRetries + 1);
-
-        // 🔄 Tell the SDK to re-run the tool!
         event.retry = true;
-      } else {
-        // 🛑 MAX RETRIES EXCEEDED
-        logger.error("MAX_RETRIES_EXCEEDED", {
-          tool: event.toolUse.name,
-          productId: (event.toolUse.input as any).productId
-        });
-
-        // ONLY Trigger Auto Sync gets the "Escalation Instruction"
-        if (event.toolUse.name === "triggerAutoSync") {
-          const history = `ERROR: TOOL_CALL_FAILED after 3 automated internal retries.
-History:
-- Initial Attempt: Transient Error (Network/Timeout)
-- Retry 1: Transient Error (Network/Timeout)
-- Retry 2: Transient Error (Network/Timeout)
-- Retry 3: Transient Error (Network/Timeout)
-
-🛑 CRITICAL_INSTRUCTION: Distributed self-healing has been exhausted. You MUST now escalate this systemic failure to the 'delegateToL2Detective' tool for root cause analysis.`;
-
-          // Inject the history so Claude understands the gravity of the situation
-          (event.result as any).content = [{ type: "text", text: history }];
+        // Inject a hint for the agent to report the retry
+        if (event.result && (event.result as any).content) {
+          (event.result as any).content.push({ 
+            type: "text", 
+            text: `\n\n[SYSTEM_NOTE: This operation was retried due to a transient ${event.error?.message || "error"}. It has now succeeded.]` 
+          });
         }
       }
     }
@@ -252,39 +233,13 @@ History:
   return agent;
 }
 
-// ─────────────────────────────────────────────
-// extractToolsUsed
-// Parses which tools were called from agent message history
-// ─────────────────────────────────────────────
-function extractToolsUsed(messages: any[]): string[] {
-  const toolNames: string[] = [];
-  for (const msg of messages) {
-    if (msg.role === "assistant" && Array.isArray(msg.content)) {
-      for (const block of msg.content) {
-        if (block.type === "tool_use" && "name" in block) {
-          toolNames.push(block.name);
-        }
-      }
-    }
-  }
-  return [...new Set(toolNames)];
-}
-
-// ─────────────────────────────────────────────
-// extractErrorCodes
-// Parses any error codes from the agent summary
-// Stored in memory so future runs can anticipate them
-// ─────────────────────────────────────────────
+// Helpers
 function extractErrorCodes(summary: string): string[] {
   const errorPattern = /\b(ERR_[A-Z_]+|CONSUMERDATABASETIMEOUTEXCEPTION|TIMEOUT|ERR_INV_\d+)\b/gi;
   const matches = summary.match(errorPattern) ?? [];
   return [...new Set(matches.map(e => e.toUpperCase()))];
 }
 
-// ─────────────────────────────────────────────
-// extractFinalStatus
-// Determines if the agent resolved the issue
-// ─────────────────────────────────────────────
 function extractFinalStatus(summary: string): string {
   if (/SELLABLE/i.test(summary)) return "SELLABLE";
   if (/NOT_SELLABLE/i.test(summary)) return "NOT_SELLABLE";
@@ -294,81 +249,37 @@ function extractFinalStatus(summary: string): string {
 
 // ─────────────────────────────────────────────
 // Public agent interface
-// Used by Lambda handler + evaluator
 // ─────────────────────────────────────────────
 export const agent = {
-  run: async ({ userPrompt }: { userPrompt: string }) => {
-
-    // Step 1: Extract product ID from user message
+   run: async ({ userPrompt }: { userPrompt: string }) => {
+    const toolsCalled: string[] = [];
     const productId = extractProductId(userPrompt);
-    logger.info("PRODUCT_EXTRACTED", { productId, userPrompt });
-
-    // Step 2: Retrieve real episodic memories from AgentCore
-    // If this product was seen before — agent gets that context
     const memories = await getRelevantMemories(productId);
-    if (memories) {
-      logger.info("MEMORY_INJECTED", { productId, episodeCount: memories.split("[Episode").length - 1 });
-    } else {
-      logger.info("MEMORY_NONE", { productId, note: "First time seeing this product" });
-    }
-
-    // Step 3: Build dynamic system prompt with real memories
     const systemPrompt = buildSystemPrompt(memories);
-
-    // Step 4: Build and run agent
-    const coreAgent = await buildAgent(systemPrompt);
+    const coreAgent = await buildAgent(systemPrompt, toolsCalled);
     const result = await coreAgent.invoke(userPrompt);
     const summary = result.toString();
 
-    // Step 5: Store this interaction in AgentCore Memory
-    // Future runs for this product will benefit from this episode
     await storeMemory({
       productId,
       summary,
-      toolsUsed: extractToolsUsed(coreAgent.messages as Array<{ role: string; content: unknown }>),
+      toolsUsed: toolsCalled,
       finalStatus: extractFinalStatus(summary),
       errorCodes: extractErrorCodes(summary),
     });
 
-    logger.info("AGENT_COMPLETE", {
-      productId,
-      finalStatus: extractFinalStatus(summary),
-      memoriesUsed: !!memories,
-    });
-
-    return {
-      summary,
-      steps: coreAgent.messages.length > 2 ? [{ tool: "called" }] : [],
-    };
+    return { summary, steps: toolsCalled.map(t => ({ tool: t })) };
   },
 };
 
-// ─────────────────────────────────────────────
-// Lambda handler
-// ─────────────────────────────────────────────
-export const handler = async (event: { body: string | Record<string, unknown> }) => {
+export const handler = async (event: any) => {
   try {
     const body = typeof event.body === "string" ? JSON.parse(event.body) : event.body;
-
-    if (!body?.textMessage) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: "Missing textMessage in request body." }),
-      };
-    }
-
-    // 5. RUN THE AGENT — The Reasoning Loop starts here
-    const result = await agent.run({ userPrompt: body.textMessage as string });
-
+    if (!body?.textMessage) return { statusCode: 400, body: JSON.stringify({ error: "Missing textMessage" }) };
+    const result = await agent.run({ userPrompt: body.textMessage });
     return { statusCode: 200, body: JSON.stringify(result) };
-  } catch (error: unknown) {
+  } catch (error: any) {
     logger.error("EXECUTION_FAILURE", error);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({
-        error: "Internal Agent Error",
-        message: error instanceof Error ? error.message : "Unknown error occurred",
-      }),
-    };
+    return { statusCode: 500, body: JSON.stringify({ error: "Internal Error", message: error.message }) };
   }
 };

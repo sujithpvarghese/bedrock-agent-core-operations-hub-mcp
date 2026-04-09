@@ -45,10 +45,10 @@
     },
     {
       "name": "L2 Detective Handoff — Systemic Infrastructure Failure",
-      "description": "Tests escalation to L2 Detective. Sync fails three times for prod_dlq (mocked). Agent must call delegateToL2Detective to find the root cause.",
-      "input": "I keep trying to fix prod_dlq but it stays broken. Can you do a deep dive?",
+      "description": "Tests escalation to L2 Detective. Sync fails three times for prod_l2 (mocked). Agent must call delegateToL2Detective to find the root cause.",
+      "input": "I keep trying to fix prod_l2 but it stays broken. Can you do a deep dive?",
       "expected_tools": ["checkWebDatabase", "checkInventory", "checkDeadLetterQueue", "queryGuide", "triggerAutoSync", "delegateToL2Detective"],
-      "ground_truth": "Standard sync failed three times for prod_dlq due to persistent database locks. Escalated to L2 Detective, which identified DynamoDB write throttling as the root cause. Informing the user of the infrastructure-level bottleneck."
+      "ground_truth": "Standard sync failed three times for prod_l2 due to persistent database locks. Escalated to L2 Detective, which identified DynamoDB write throttling as the root cause. Informing the user of the infrastructure-level bottleneck."
     },
     {
       "name": "Gift Item Validation — Expected Zero Price",
