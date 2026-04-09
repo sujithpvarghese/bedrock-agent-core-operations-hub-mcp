@@ -30,11 +30,11 @@ graph TD
 The most advanced piece of the orchestrator is its fault-tolerance mechanism built into `@strands-agents/sdk` hooks. 
 
 ### The Flow:
-1. **Pre-Execution (`BeforeToolCallEvent`):** Business logic safety checks. For instance, the system hooks into `triggerAutoSync` and dynamically blocks executions during "Holiday Freeze" windows to prevent accidental production deployments.
+1. **Pre-Execution Guardrails (`BeforeToolCallEvent`):** Real-world operational safety. The system hooks into remediation tools (like `triggerAutoSync`) and dynamically blocks execution during defined "Holiday Freeze" windows (e.g., Fridays after 4 PM or weekends). This prevents accidental production deployments during peak hours or unmonitored periods.
 2. **Observation:** The Agent attempts to invoke an upstream MCP service.
-3. **Error Interception (`AfterToolCallEvent`):** If a `504` or `503` occurs, the orchestrator hides this from the LLM. It increments a local tracker in `appState`.
-4. **Silent Loop:** The orchestrator re-fires the network request up to 3 times sequentially. 
-5. **Deterministic Escalation:** On the 4th failure, the orchestrator injects a synthetic "Failure Payload History" back into the LLM's context window. This strict prompting forces the AI to abandon the current strategy and immediately invoke `delegateToL2Detective`.
+3. **Error Interception (`AfterToolCallEvent`):** If a `504` or `503` occurs, the orchestrator "hides" the failure from the LLM. It increments a local tracker in the session context.
+4. **Stealth Retries:** The orchestrator re-fires the network request up to 3 times sequentially without the LLM ever knowing a failure occurred. 
+5. **Deterministic Escalation**: If all 3 retries fail, the orchestrator stops intercepting. The accumulated failure history is presented to the LLM, and the system prompt's deterministic escalation rules take over to trigger the L2 Detective.
 
 ### 🔄 The Hook Execution Loop
 
@@ -76,7 +76,7 @@ graph TD
     subgraph SecureEnclave ["Secure Enclave (L2 Network)"]
         Delegate -->|"Invoke"| SubAgent["L2 Detective Agent"]
         SubAgent -->|"Deep Infra Access"| CloudWatchLogs("CloudWatch")
-        SubAgent -->|"Commit Access"| Jira("Jira Issues")
+        SubAgent -->|"Extensible to"| Jira("Jira / PagerDuty (Simulated)")
     end
     
     style SubAgent fill:#f9f,stroke:#333,stroke-width:2px

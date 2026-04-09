@@ -18,7 +18,7 @@ export const logic = async ({ styleId, productId }: any) => {
       })}]
     };
   }
-  // TODO: Real PIM lookup
+  // Production: Replace with actual PIM system API lookup
   return { content: [{ type: "text", text: JSON.stringify({ styleId: lookId, status: "PUBLISHED" })}] };
 };
 

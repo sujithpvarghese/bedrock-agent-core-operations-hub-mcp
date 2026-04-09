@@ -38,13 +38,19 @@ To maintain strict security boundaries and lean context windows, we implemented 
 ### 🩹 Stealth Resilience logic
 Handles the inherent "chaos" of distributed systems through **Stealth Retries**. The system intercepts transient 5xx errors at the protocol level, performing silent recoveries that are hidden from the LLM’s reasoning chain until deterministic escalation thresholds are met.
 
+### 🔒 Operational Guardrails
+Built-in business rules enforced at the hook layer, not the prompt layer:
+- **Change Freeze Window**: Automated syncs are blocked Friday 4PM → Monday morning. Any attempt returns `OPERATIONAL_POLICY_ERROR`.
+- **Gift Item Guard**: Products with `GFT-` or `SAMPLE-` SKU prefixes that return a $0.00 price are flagged as intentional — sync is suppressed to prevent overwriting valid zero-price items.
+
 ---
 
-## 🛠️ The Stack
+### 🛠️ The Stack
 - **Orchestration**: `@strands-agents/sdk` + Amazon Bedrock.
 - **Protocol**: Official MCP logic over HTTPS Lambda Function URLs.
 - **Schema**: Model-aware Zod-to-JSON-Schema transformation (Claude, Nova, Llama).
-- **Deployment**: Stage-aware Serverless Framework v4.
+- **Production Hygiene**: Built-in `__health` probes on every service and a CORS-enabled `statusHub`.
+- **Deployment**: Stage-aware Serverless Framework v4 using clean YAML anchors for URL management.
 - **Traceability**: Logical Correlation ID tracing across distributed log groups.
 
 > [!TIP]

@@ -64,7 +64,7 @@ export const logic = async ({ productId, skuId, syncType }: any) => {
     };
   }
 
-  // TODO: Replace with real Step Functions startExecution or SQS enqueue
+  // Production: Replace with actual AWS Step Functions startExecution or SQS message enqueue
   return {
     content: [{ type: "text", text: JSON.stringify({
       syncId,
