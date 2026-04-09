@@ -1,10 +1,12 @@
 import { createToolHandler } from "../mcp-server-factory";
 import { TOOL_METADATA } from "../mcp-tools";
 import { listAllMemories } from "../memory";
+import { logger } from "../logger";
 
 const IS_MOCK = process.env.USE_MOCKS !== "false";
 
-export const handler = createToolHandler(TOOL_METADATA.memoryListService, async ({ productId }) => {
+export const logic = async ({ productId }: any) => {
+  logger.info("MCP_TOOL_CALL_listMemories", { productId });
   if (IS_MOCK) {
     return {
       content: [{ type: "text", text: JSON.stringify({
@@ -18,4 +20,6 @@ export const handler = createToolHandler(TOOL_METADATA.memoryListService, async 
   }
   const memories = await listAllMemories(productId);
   return { content: [{ type: "text", text: JSON.stringify({ productId: productId ?? "ALL", memories, count: memories.length })}] };
-});
+};
+
+export const handler = createToolHandler(TOOL_METADATA.memoryListService, logic);

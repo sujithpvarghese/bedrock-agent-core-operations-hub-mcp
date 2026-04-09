@@ -1,9 +1,11 @@
 import { createToolHandler } from "../mcp-server-factory";
 import { TOOL_METADATA } from "../mcp-tools";
+import { logger } from "../logger";
 
 const IS_MOCK = process.env.USE_MOCKS !== "false";
 
 export const logic = async ({ skuId, productId }: any) => {
+  console.log("MCP_TOOL_CALL_checkInventory", { skuId, productId });
   // Accept either skuId or productId — use whichever is provided
   const lookupId = skuId ?? productId ?? "unknown";
 
@@ -11,9 +13,9 @@ export const logic = async ({ skuId, productId }: any) => {
     return {
       content: [{ type: "text", text: JSON.stringify({
         skuId: lookupId,
-        globalStock: 50,
-        status: "AVAILABLE",
-        fulfillmentCenters: ["FC-01", "FC-05"],
+        upstreamInventory: 150,
+        status: "MATCH_DISPARITY",
+        lastSync: new Date().toISOString(),
       })}]
     };
   }

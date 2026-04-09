@@ -31,7 +31,6 @@ export function createToolHandler(
           inputSchema: metadata.inputSchema,
         },
         async (args: any) => {
-          logger.info(`MCP_TOOL_CALL_${metadata.name}`, { correlationId, ...args });
           return implementation(args, { correlationId });
         }
       );

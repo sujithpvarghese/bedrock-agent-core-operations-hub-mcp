@@ -7,7 +7,7 @@ const bedrockRuntime = new BedrockRuntimeClient({
   region: process.env.AWS_REGION || 'us-east-1'
 });
 
-const JUDGE_MODEL = 'anthropic.claude-3-5-sonnet-20241022-v2:0';
+const JUDGE_MODEL = 'us.anthropic.claude-sonnet-4-5-20250929-v1:0';
 const PASS_THRESHOLD = 70;
 
 /**
@@ -92,20 +92,20 @@ async function runEvals() {
     try {
       // Step 1: Run the agent against the scenario input
       const result = await agent.run({ userPrompt: scenario.input });
-      
+
       // Step 2: Extract real tools from messages (we need to expose or extract them)
       // I'll add logic to check scenario.expected_tools against the summary or track them.
       // Re-running logic to get final state
-      
+
       // Step 3: Send to Claude judge for semantic evaluation
       const judgment = await judgeWithClaude(scenario.name, result.summary, scenario.ground_truth);
 
       // Step 4: Tool Constraint Check — did the agent actually call what it should?
       const missedTools = (scenario.expected_tools || []).filter(
-        (t: string) => !result.summary.toLowerCase().includes(t.toLowerCase()) && 
-                       !JSON.stringify(result.steps).toLowerCase().includes(t.toLowerCase())
+        (t: string) => !result.summary.toLowerCase().includes(t.toLowerCase()) &&
+          !JSON.stringify(result.steps).toLowerCase().includes(t.toLowerCase())
       );
-      
+
       const toolPenalty = missedTools.length * 10;
       const finalScore = Math.max(0, judgment.score - toolPenalty);
 
@@ -116,18 +116,18 @@ async function runEvals() {
       console.log(passed ? '✅ PASS' : '❌ FAIL');
       console.log(`📊 Score    : ${finalScore}/100 (Judge: ${judgment.score}, Pen: -${toolPenalty})`);
       console.log(`🧑‍⚖️  Judgment : ${judgment.reasoning}`);
-      
+
       if (missedTools.length > 0) {
         console.log(`⚠️  Missed Tools: ${missedTools.join(', ')}`);
       }
-      
+
       if (!passed) {
         console.log(`   Agent Output : "${result.summary.slice(0, 200)}..."`);
         console.log(`   Ground Truth : "${scenario.ground_truth}"`);
       }
     } catch (err: any) {
       console.log('❌ FAIL (Execution Error)');
-      console.log(`🛑 Error: ${err.message}`);
+      console.log(`🛑 Error: ${err.stack || err.message}`);
       console.log(`   Ground Truth : "${scenario.ground_truth}"`);
     }
     console.log('--------------------------------------------\n');
