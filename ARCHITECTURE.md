@@ -15,12 +15,12 @@ Unlike traditional monolithic agents that run all logic inside a single prompt o
 
 ```mermaid
 graph TD
-    Agent["agent.ts (Main Orchestrator)"] -->|"MCP HTTP Call"| HTTP_Gateway["API Gateway"]
+    Agent["agent.ts (Main Orchestrator)"] -->|"MCP HTTP Call"| LambdaURL["Lambda Function URL"]
     
-    HTTP_Gateway --> InvLambda("Inventory MCP Lambda")
-    HTTP_Gateway --> PriceLambda("Pricing MCP Lambda")
-    HTTP_Gateway --> SyncLambda("Sync Tool Lambda")
-    HTTP_Gateway --> SubAgent["L2 Detective Sub-Agent"]
+    LambdaURL --> InvLambda("Inventory MCP Lambda")
+    LambdaURL --> PriceLambda("Pricing MCP Lambda")
+    LambdaURL --> SyncLambda("Sync Tool Lambda")
+    LambdaURL --> SubAgent["L2 Detective Sub-Agent"]
 ```
 
 ---

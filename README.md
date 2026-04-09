@@ -27,7 +27,7 @@ This isn't just an AI; it's a **Self-Healing Infrastructure** that turns manual 
 ## 🏗️ Technical Pillars
 
 ### 🌐 Decentralized MCP Mesh
-Unlike monolithic agents, this system utilizes a **Distributed Model Context Protocol (MCP)** mesh. Built on a collection of independent AWS Lambda services, the orchestrator dynamically routes intent across the infrastructure. This decoupling allows for independent service scaling and ensures the orchestrator remains infrastructure-agnostic.
+Unlike monolithic agents, this system utilizes a **Distributed Model Context Protocol (MCP)** mesh. Built on **Decentralized Tools**: 11 independent AWS Lambda functions acting as MCP Servers. The orchestrator dynamically routes intent across the infrastructure. This decoupling allows for independent service scaling and ensures the orchestrator remains infrastructure-agnostic.
 
 ### 🧠 Episodic Memory Bridge
 The system leverages a stateful **Episodic Memory** bridge to bypass redundant diagnostic cycles. By correlating current SKU states with historical resolution data, the agent can skip L1 triage and move directly to remediation, drastically reducing token latency and operational costs.
@@ -70,7 +70,7 @@ npm run eval
 ```
 
 ### Deployment
-Deploy the entire mesh as 12+ CloudFormation-managed Lambdas:
+Deploy the entire mesh as 12 CloudFormation-managed Lambdas:
 ```bash
 sls deploy --stage dev
 ```
@@ -85,4 +85,4 @@ This project demonstrates expertise in:
 - **Chaos Engineering**: Building resilient systems that survive 503s and timeouts.
 
 ---
-*Created by [Your Name] for the Bedrock Agent Portfolio.*
+*Created by Palamkunnel Sujith for the Bedrock Agent Portfolio.*
