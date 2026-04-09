@@ -34,9 +34,17 @@ const envSchema = z.object({
   AGENTCORE_RUNTIME_ID: z.string().optional(),
   AGENTCORE_MEMORY_ID: z.string().optional(),
   AGENTCORE_NAMESPACE: z.string().default("operations-hub"),
-  MCP_SERVER_URLS: z.string().optional().transform((v) => 
-    v ? v.split(",").map(u => u.trim()).filter(Boolean) : []
-  ),
+  MCP_SERVER_URLS: z.string().optional().transform((v) => {
+    if (!v) return new Map<string, string>();
+    const mapping = new Map<string, string>();
+    v.split(",").map(i => i.trim()).forEach(item => {
+      const [key, ...urlParts] = item.split(":");
+      if (key && urlParts.length > 0) {
+        mapping.set(key, urlParts.join(":"));
+      }
+    });
+    return mapping;
+  }),
   WEB_DB_LOG_GROUP: z.string().optional(),
   AGENT_MODEL_ID: z.string().default("us.anthropic.claude-sonnet-4-5-20250929-v1:0"),
   L2_MODEL_ID: z.string().default("us.anthropic.claude-sonnet-4-5-20250929-v1:0"),
