@@ -29,6 +29,18 @@ graph TD
 
 The most advanced piece of the orchestrator is its fault-tolerance mechanism built into `@strands-agents/sdk` hooks. 
 
+### 🏗️ Scaling Pattern: The MCP Server Factory
+
+To manage 11 specialized services without code duplication, the architecture uses a **Centralized Server Factory** (`src/mcp-server-factory.ts`).
+
+-   **Standardized Handlers**: Every service automatically inherits standardized logging, error handling, and correlation ID propagation.
+-   **Automated Health Probes**: Each Lambda exposes a `__health` tool by default, allowing the Orchestrator to monitor the mesh status without complex sidecar patterns.
+-   **Context Injection**: The factory ensures that cross-cutting concerns (like the Holiday Freeze window) are applied uniformly across the entire tool-set.
+
+---
+
+### 🛡️ Operational Guardrails
+
 ### The Flow:
 1. **Pre-Execution Guardrails (`BeforeToolCallEvent`):** Real-world operational safety. The system hooks into remediation tools (like `triggerAutoSync`) and dynamically blocks execution during defined "Holiday Freeze" windows (e.g., Fridays after 4 PM or weekends). This prevents accidental production deployments during peak hours or unmonitored periods.
 2. **Observation:** The Agent attempts to invoke an upstream MCP service.

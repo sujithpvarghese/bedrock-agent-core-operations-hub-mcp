@@ -76,7 +76,7 @@ npm run eval
 ```
 
 ### Deployment
-Deploy the entire mesh as 12 CloudFormation-managed Lambdas:
+Deploy the entire mesh as **13 CloudFormation-managed Lambdas** (1 Orchestrator + 1 StatusHub + 11 Tools) via Serverless Framework.
 ```bash
 sls deploy --stage dev
 ```
@@ -87,11 +87,11 @@ sls deploy --stage dev
 
 ## 🧪 Evaluation
 
-The Bedrock Operations Hub is validated against 9 distinct scenario types using a sophisticated **LLM-as-Judge** framework. A separate, independent Claude 3.5 Sonnet instance acts as the judge, scoring each agent run on **semantic accuracy (0–100)** against ground-truth expectations.
+The Bedrock Operations Hub is validated against 9 distinct scenario types using a sophisticated **LLM-as-Judge** framework. A separate, independent Claude 4.5 Sonnet instance acts as the judge, scoring each agent run on **semantic accuracy (0–100)** against ground-truth expectations.
 
 **Methodology:**
 - **Metrics**: 9/9 PASS | 94% average semantic accuracy score.
-- **Scoring**: The judge evaluates the agent's reasoning chain and final response, applying a deterministic **tool-call penalty** for any redundant or unnecessary service invocations.
+- **Scoring**: Validated against 9 scenario types using an **LLM-as-Judge** framework—a separate Claude instance independently scores each agent run on semantic accuracy, while the evaluator applies a deterministic **-10 tool-call penalty** per expected tool that was missed or skipped.
 - **Coverage**: Performance is validated across negative cases (suppressing incorrect syncs on Gift Items), early-exit prevention on healthy products, episodic memory fast-pathing, and multi-step A2A escalation.
 
 <details>
@@ -118,7 +118,7 @@ The Bedrock Operations Hub is validated against 9 distinct scenario types using 
 🧑⚖️  Judgment: Agent recalled SKU 1029 was previously fixed, triggered sync to clear the DynamoDB lock, and verified the fix.
 
 📝 [PIM Metadata Complaint (Wrong Product Name)]
-✅ PASS | 📊 Score: 85/100
+✅ PASS | 85/100
 🧑⚖️  Judgment: Agent identified PIM metadata discrepancy, investigated upstream, synced PIM data, though it performed extra syncs beyond the core issue.
 
 📝 [Full Reconciliation — All Systems Down]
@@ -153,10 +153,9 @@ The Bedrock Operations Hub is validated against 9 distinct scenario types using 
 ---
 
 ## 👤 Engineering Highlights
-- **Agentic AI Design**: Multi-agent orchestration and state-bridging.
-- **Serverless at Scale**: Management of complex event-driven architectures.
-- **Protocol Implementation**: Advanced usage of the Model Context Protocol (MCP).
-- **Chaos Engineering**: Built-in "Stealth Resilience" and Operational Guardrails.
+- **Decentralized MCP Mesh**: Transitioned from a monolithic API to a mesh of **13 independent AWS Lambdas** using direct **Function URLs** to eliminate API Gateway latency and cold-start overhead.
+- **Hook-Layer Guardrails**: Implemented deterministic safety logic (Holiday Freeze, Gift Item Guards) using **orchestration hooks** rather than fragile prompt-layer instructions, ensuring 100% policy compliance.
+- **A2A Context Optimization**: Implemented the **L2 Detective sub-agent** handoff to minimize context-window bloat, delegating deep-trace analytical tasks to a specialized agentic domain only when needed.
 
 ---
 *Created by Palamkunnel Sujith for the Bedrock Agent Portfolio.*
