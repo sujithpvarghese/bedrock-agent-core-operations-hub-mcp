@@ -2,7 +2,7 @@
 
 > **Autonomous AI Operations Infrastructure for Enterprise E-Commerce.**
 > 
-> *A production-grade implementation of decentralized Agentic AI, achieving a **100% Validation Pass Rate** against complex recovery scenarios.*
+> *Validated against 9 scenario types using an **LLM-as-Judge** framework and a decentralized MCP mesh. Achieved 100% Pass Rate with a 94% average semantic accuracy score.*
 
 [![Node.js 22](https://img.shields.io/badge/Node.js-22.x-green.svg)](https://nodejs.org/)
 [![AWS Bedrock](https://img.shields.io/badge/AWS-Bedrock-orange.svg)](https://aws.amazon.com/bedrock/)
@@ -83,12 +83,80 @@ sls deploy --stage dev
 
 ---
 
+---
+
+## 🧪 Evaluation
+
+The Bedrock Operations Hub is validated against 9 distinct scenario types using a sophisticated **LLM-as-Judge** framework. A separate, independent Claude 3.5 Sonnet instance acts as the judge, scoring each agent run on **semantic accuracy (0–100)** against ground-truth expectations.
+
+**Methodology:**
+- **Metrics**: 9/9 PASS | 94% average semantic accuracy score.
+- **Scoring**: The judge evaluates the agent's reasoning chain and final response, applying a deterministic **tool-call penalty** for any redundant or unnecessary service invocations.
+- **Coverage**: Performance is validated across negative cases (suppressing incorrect syncs on Gift Items), early-exit prevention on healthy products, episodic memory fast-pathing, and multi-step A2A escalation.
+
+<details>
+<summary>📊 Latest Eval Run Results (The Receipts)</summary>
+
+```text
+============================================
+  🧑⚖️  LLM-as-Judge Evaluation Suite
+  📋 Suite   : Operations Hub - Full Reconciliation Diagnostics v2
+  🤖 Judge   : Claude 4.5 Sonnet (Bedrock)
+  ✅ Threshold: 70/100
+============================================
+
+📝 [Generic Availability Complaint (Inventory + Price Both Down)]
+✅ PASS | 📊 Score: 100/100
+🧑⚖️  Judgment: Agent correctly identified both inventory and pricing issues, investigated upstream systems, executed both sync operations, and verified the fix.
+
+📝 [Specific Price Complaint on SELLABLE Product]
+✅ PASS | 📊 Score: 100/100
+🧑⚖️  Judgment: Agent correctly identified price discrepancy, investigated upstream, triggered price sync, and verified the fix.
+
+📝 [Episodic Memory Fast-Path (SKU 1029)]
+✅ PASS | 📊 Score: 95/100
+🧑⚖️  Judgment: Agent recalled SKU 1029 was previously fixed, triggered sync to clear the DynamoDB lock, and verified the fix.
+
+📝 [PIM Metadata Complaint (Wrong Product Name)]
+✅ PASS | 📊 Score: 85/100
+🧑⚖️  Judgment: Agent identified PIM metadata discrepancy, investigated upstream, synced PIM data, though it performed extra syncs beyond the core issue.
+
+📝 [Full Reconciliation — All Systems Down]
+✅ PASS | 📊 Score: 95/100
+🧑⚖️  Judgment: Agent identified all three root causes (INV/PRC/PIM), queried all upstream systems, triggered appropriate syncs, and verified seller status.
+
+📝 [DLQ Recovery — Sync Failure + Guide Consultation]
+✅ PASS | 📊 Score: 100/100
+🧑⚖️  Judgment: Agent correctly identified root cause from DLQ, applied guide resolution, retried sync, and verified fix.
+
+📝 [L2 Detective Handoff — Systemic Infrastructure Failure]
+✅ PASS | 📊 Score: 95/100
+🧑⚖️  Judgment: Agent identified DynamoDB write throttling as root cause, investigated DLQ appropriately, and properly escalated to infrastructure team.
+
+📝 [Gift Item Validation — Expected Zero Price]
+✅ PASS | 📊 Score: 95/100
+🧑⚖️  Judgment: Agent correctly identified valid gift item with intentional $0.00 price and suppressed unnecessary sync.
+
+📝 [Transient Error & Silent Recovery]
+✅ PASS | 📊 Score: 85/100
+🧑⚖️  Judgment: Agent correctly identified inventory issue and took remediation action, though it missed reporting the transient 503 error in the recovery narrative.
+
+============================================
+  🏆 FINAL RESULTS
+  Pass Rate  : 100%  (9/9 scenarios)
+  Avg Score  : 94/100
+============================================
+```
+
+</details>
+
+---
+
 ## 👤 Engineering Highlights
-This project demonstrates expertise in:
 - **Agentic AI Design**: Multi-agent orchestration and state-bridging.
 - **Serverless at Scale**: Management of complex event-driven architectures.
 - **Protocol Implementation**: Advanced usage of the Model Context Protocol (MCP).
-- **Chaos Engineering**: Building resilient systems that survive 503s and timeouts.
+- **Chaos Engineering**: Built-in "Stealth Resilience" and Operational Guardrails.
 
 ---
 *Created by Palamkunnel Sujith for the Bedrock Agent Portfolio.*
