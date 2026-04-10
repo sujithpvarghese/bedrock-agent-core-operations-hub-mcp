@@ -4,7 +4,9 @@
 > 
 > *Validated against 9 scenario types using an **LLM-as-Judge** framework and a decentralized MCP mesh. Achieved 100% Pass Rate with a 94% average semantic accuracy score.*
 
+[![TypeScript](https://img.shields.io/badge/Language-TypeScript-blue.svg)](https://www.typescriptlang.org/)
 [![Node.js 22](https://img.shields.io/badge/Node.js-22.x-green.svg)](https://nodejs.org/)
+[![Strands SDK](https://img.shields.io/badge/Framework-Strands_SDK-purple.svg)](https://github.com/strands-agents/sdk)
 [![AWS Bedrock](https://img.shields.io/badge/AWS-Bedrock-orange.svg)](https://aws.amazon.com/bedrock/)
 [![MCP Protocol](https://img.shields.io/badge/Protocol-MCP-blue.svg)](https://modelcontextprotocol.io/)
 [![Serverless v4](https://img.shields.io/badge/Framework-Serverless--v4-red.svg)](https://www.serverless.com/)
@@ -46,8 +48,10 @@ Built-in business rules enforced at the hook layer, not the prompt layer:
 ---
 
 ### 🛠️ The Stack
+- **Language**: TypeScript & Node.js 22.x (leveraging `Symbol.dispose`).
 - **Orchestration**: `@strands-agents/sdk` + Amazon Bedrock.
 - **Protocol**: Official MCP logic over HTTPS Lambda Function URLs.
+- **Memory**: Amazon Bedrock AgentCore (Vector-based episodic retrieval).
 - **Schema**: Model-aware Zod-to-JSON-Schema transformation (Claude, Nova, Llama).
 - **Production Hygiene**: Built-in `__health` probes on every service and a CORS-enabled `statusHub`.
 - **Deployment**: Stage-aware Serverless Framework v4 using clean YAML anchors for URL management.
