@@ -76,7 +76,7 @@ async function runEvals() {
   console.log('\n============================================');
   console.log('  🧑‍⚖️  LLM-as-Judge Evaluation Suite');
   console.log(`  📋 Suite   : ${test_suite}`);
-  console.log(`  🤖 Judge   : Claude 3.5 Sonnet v2 (Bedrock)`);
+  console.log(`  🤖 Judge   : Claude 4.5 Sonnet (Bedrock)`);
   console.log(`  ✅ Threshold: ${PASS_THRESHOLD}/100`);
   console.log('============================================\n');
 
@@ -102,8 +102,7 @@ async function runEvals() {
 
       // Step 4: Tool Constraint Check — did the agent actually call what it should?
       const missedTools = (scenario.expected_tools || []).filter(
-        (t: string) => !result.summary.toLowerCase().includes(t.toLowerCase()) &&
-          !JSON.stringify(result.steps).toLowerCase().includes(t.toLowerCase())
+        (t: string) => !result.steps.some(step => step.tool.toLowerCase() === t.toLowerCase())
       );
 
       const toolPenalty = missedTools.length * 10;
