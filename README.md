@@ -15,11 +15,15 @@
 
 ## 📖 The Story
 
-It's 3:00 AM on Black Friday. A top-selling SKU suddenly goes "Out of Stock" on the website despite having 500 units in the warehouse. The reason? A transient DynamoDB write-timeout two hours ago left the web database out of sync.
+It's 3:00 AM on Black Friday. A critical product suddenly shows "Out of Stock" on your website despite 500 units in the warehouse. The culprit? Surge traffic triggered DynamoDB write-throttling, leaving a sync message stranded in the Dead Letter Queue.
 
-Usually, this would wait for a human developer to wake up, costing thousands in lost revenue. **The Operations Hub doesn't wait.** Within seconds, it clears the blockage, triggers a self-healing sync, and verifies the product is back online—**all before your first customer of the day even wakes up.**
+Usually, this means an exhausted engineer gets paged, spends an hour digging through logs, and manually triggers a sync — while the company loses thousands in sales.
 
-This isn't just an AI; it's a **Self-Healing Infrastructure** that turns manual support tasks into automated success stories.
+**The Bedrock Operations Hub changes that story.**
+
+An on-call operator types a single natural-language message. From that moment, the AI takes over as a senior expert would. It checks inventory levels, scans Dead Letter Queues for blockages, and **remembers** if this exact product has failed before. Within seconds, it diagnoses the root cause, clears the blockage, triggers a self-healing sync, and confirms the product is live — **no developer pager required.**
+
+This isn't just an AI. It's **Self-Healing Infrastructure** — turning 3 AM incident bridges into solved tickets.
 
 ## 📐 Architectural Journey
 
@@ -105,7 +109,7 @@ The Bedrock Operations Hub is validated against 9 distinct scenario types using 
 ```text
 📝 [Scenario 1: Generic Availability Complaint]
 ✅ PASS | 📊 Consensus: 100/100 (Claude: 100, Nova: 100, Pen: -0)
-🧑‍⚖️  Claude   : Identifed root cause and used correct tools for inventory/price sync.
+🧑‍⚖️  Claude   : Identified root cause and used correct tools for inventory/price sync.
 🧑‍⚖️  Nova     : Accurate root cause identification and successful verification.
 
 📝 [Scenario 2: Specific Price Complaint]
@@ -115,7 +119,7 @@ The Bedrock Operations Hub is validated against 9 distinct scenario types using 
 
 📝 [Scenario 3: Episodic Memory Fast-Path]
 ✅ PASS | 📊 Consensus: 98/100 (Claude: 100, Nova: 95, Pen: -0)
-🧑‍⚖️  Claude   : Correct identified episodic memory indicator for previous fix.
+🧑‍⚖️  Claude   : Correctly identified episodic memory indicator for previous fix.
 🧑‍⚖️  Nova     : Accurate identification of root cause and used correct tool.
 
 📝 [Scenario 4: PIM Metadata Complaint]
@@ -140,13 +144,13 @@ The Bedrock Operations Hub is validated against 9 distinct scenario types using 
 
 📝 [Scenario 8: Gift Item Validation — Expected Zero Price]
 ✅ PASS | 📊 Consensus: 100/100 (Claude: 100, Nova: 100, Pen: -0)
-🧑‍⚖️  Claude   : Correct identified promotional $0.00 as valid business state.
+🧑‍⚖️  Claude   : Correctly identified promotional $0.00 as valid business state.
 🧑‍⚖️  Nova     : Perfectly aligns with ground truth for GFT- SKU logic.
 
 📝 [Scenario 9: Transient Error & Silent Recovery]
 ✅ PASS | 📊 Consensus: 83/100 (Claude: 85, Nova: 80, Pen: -0)
-🧑‍⚖️  Claude   : Correct remediated 503 error via silent retry but missed summary mention.
-🧑‍⚖️  Nova     : Correct identified the issue but did not mention the silent recovery.
+🧑‍⚖️  Claude   : Correctly remediated 503 error via silent retry but missed summary mention.
+🧑‍⚖️  Nova     : Correctly identified the issue but did not mention the silent recovery.
 
 ============================================
   🏆 FINAL RESULTS
