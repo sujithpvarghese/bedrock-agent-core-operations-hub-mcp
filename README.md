@@ -30,7 +30,7 @@ This isn't just an AI. It's **Self-Healing Infrastructure** — turning 3 AM inc
 This project progressed through **3 distinct evolutionary phases**, where each iteration exposed specific limitations in the previous approach and drove the next major architectural decision:
 
 -   **v1 [`bedrock-full-reconciliation`](https://github.com/sujithpvarghese/bedrock-full-reconciliation)**: Initial prototype using direct Bedrock inference. Hit immediate ceilings with lack of persistent state or structured tool orchestration.
--   **v2 [`agent-core-operations-hub`](https://github.com/sujithpvarghese/agent-core-operations-hub)**: Consolidated all logic into a **Single Lambda Monolith** using `BedrockAgentCore`. While functional, the "Fat Lambda" approach created deployment bottlenecks and violated the principle of least privilege.
+-   **v2 [`agent-core-operations-hub`](https://github.com/sujithpvarghese/bedrock-agent-core-operations-hub)**: Consolidated all logic into a **Single Lambda Monolith** using `BedrockAgentCore`. While functional, the "Fat Lambda" approach created deployment bottlenecks and violated the principle of least privilege.
 -   **v3 (Current)**: Transitioned to a **Distributed MCP Mesh**. Decomposed the monolith into 11 independent MCP services. This achieved true service isolation, independent scalability, and set the stage for A2A (Agent-to-Agent) encapsulation.
 
 ---
