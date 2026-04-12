@@ -2,7 +2,7 @@
 
 > **Autonomous AI Operations Infrastructure for Enterprise E-Commerce.**
 > 
-> *Validated against 9 scenario types using an **LLM-as-Judge** framework and a decentralized MCP mesh. Achieved 100% Pass Rate with a 94% average semantic accuracy score.*
+> *Validated against 9 scenario types using an **LLM-as-Judge Consensus** framework and a decentralized MCP mesh. Achieved 100% Pass Rate with a 96% average Consensus Score across two independent models (Claude 4.5 Sonnet & Amazon Nova Pro).*
 
 [![TypeScript](https://img.shields.io/badge/Language-TypeScript-blue.svg)](https://www.typescriptlang.org/)
 [![Node.js 22](https://img.shields.io/badge/Node.js-22.x-green.svg)](https://nodejs.org/)
@@ -15,16 +15,21 @@
 
 ## 📖 The Story
 
-Imagine it's **3:00 AM on a Black Friday**. 
+It's 3:00 AM on Black Friday. A top-selling SKU suddenly goes "Out of Stock" on the website despite having 500 units in the warehouse. The reason? A transient DynamoDB write-timeout two hours ago left the web database out of sync.
 
-A critical product suddenly disappears from your website due to a **subtle race condition** during a stock update. Usually, this means an exhausted engineer gets a page, spends an hour digging through logs, and manually triggers a sync while the company loses thousands in sales.
-
-**Bedrock Operations Hub** changes that story. 
-
-When an issue is reported, an operator simply provides a single natural-language prompt to our AI-driven "Digital Twin." From that moment, the AI **takes over**. It doesn't just see that a product is missing—it **investigates** like a human expert would. It checks the inventory levels, scans the Dead Letter Queues for blockages, and "remembers" if this happened before.
- Within seconds, it clears the blockage, triggers a self-healing sync, and verifies the product is back online—**all before your first customer of the day even wakes up.**
+Usually, this would wait for a human developer to wake up, costing thousands in lost revenue. **The Operations Hub doesn't wait.** Within seconds, it clears the blockage, triggers a self-healing sync, and verifies the product is back online—**all before your first customer of the day even wakes up.**
 
 This isn't just an AI; it's a **Self-Healing Infrastructure** that turns manual support tasks into automated success stories.
+
+## 📐 Architectural Journey
+
+This project progressed through **3 distinct evolutionary phases**, where each iteration exposed specific limitations in the previous approach and drove the next major architectural decision:
+
+-   **v1 [`bedrock-full-reconciliation`](https://github.com/sujithpvarghese/bedrock-full-reconciliation)**: Initial prototype using direct Bedrock inference. Hit immediate ceilings with lack of persistent state or structured tool orchestration.
+-   **v2 [`agent-core-operations-hub`](https://github.com/sujithpvarghese/agent-core-operations-hub)**: Consolidated all logic into a **Single Lambda Monolith** using `BedrockAgentCore`. While functional, the "Fat Lambda" approach created deployment bottlenecks and violated the principle of least privilege.
+-   **v3 (Current)**: Transitioned to a **Distributed MCP Mesh**. Decomposed the monolith into 11 independent MCP services. This achieved true service isolation, independent scalability, and set the stage for A2A (Agent-to-Agent) encapsulation.
+
+---
 
 ## 🏗️ Technical Pillars
 
@@ -34,21 +39,19 @@ Unlike monolithic agents, this system utilizes a **Distributed Model Context Pro
 ### 🧠 Episodic Memory Bridge
 The system leverages a stateful **Episodic Memory** bridge to bypass redundant diagnostic cycles. By correlating current SKU states with historical resolution data, the agent can skip L1 triage and move directly to remediation, drastically reducing token latency and operational costs.
 
+### 🛡️ Stealth Resilience
+Implemented a hook-layer retry mechanism that intercepts transient 5xx errors and performs **silent recoveries**. This ensures that minor network blips do not derail the agent's reasoning chain, allowing for optimized task completion rates in unstable production environments.
+
 ### 🕵️ Agent-to-Agent (A2A) Encapsulation
 To maintain strict security boundaries and lean context windows, we implemented **A2A Handoff**. When systemic infrastructure issues are detected, the primary orchestrator encapsulates the problem and hands it off to a specialized **L2 Detective** sub-agent. This specialist possesses its own secure tool registry (CloudWatch, Jira), keeping investigative "noise" out of the primary triage loop.
-
-### 🩹 Stealth Resilience logic
-Handles the inherent "chaos" of distributed systems through **Stealth Retries**. The system intercepts transient 5xx errors at the protocol level, performing silent recoveries that are hidden from the LLM’s reasoning chain until deterministic escalation thresholds are met.
 
 ### 🔒 Operational Guardrails
 Built-in business rules enforced at the hook layer, not the prompt layer:
 - **Change Freeze Window**: Automated syncs are blocked Friday 4PM → Monday morning. Any attempt returns `OPERATIONAL_POLICY_ERROR`.
-- **Gift Item Guard**: Products with `GFT-` or `SAMPLE-` SKU prefixes that return a $0.00 price are flagged as intentional — sync is suppressed to prevent overwriting valid zero-price items.
-
----
+- **Gift Item Guard**: Recognizes that `$0.00` is the **valid business state** for promotional items (`GFT-` or `SAMPLE-`). This prevents the agent from misidentifying these items as pricing errors and triggering unnecessary, redundant remediation cycles.
 
 ### 🛠️ The Stack
-- **Language**: TypeScript & Node.js 22.x (leveraging `Symbol.dispose`).
+- **Language**: TypeScript & Node.js 22.x (Enterprise-grade type safety).
 - **Orchestration**: `@strands-agents/sdk` + Amazon Bedrock.
 - **Protocol**: Official MCP logic over HTTPS Lambda Function URLs.
 - **Memory**: Amazon Bedrock AgentCore (Vector-based episodic retrieval).
@@ -87,68 +90,68 @@ sls deploy --stage dev
 
 ---
 
----
-
 ## 🧪 Evaluation
 
-The Bedrock Operations Hub is validated against 9 distinct scenario types using a sophisticated **LLM-as-Judge** framework. A separate, independent Claude 4.5 Sonnet instance acts as the judge, scoring each agent run on **semantic accuracy (0–100)** against ground-truth expectations.
+The Bedrock Operations Hub is validated against 9 distinct scenario types using a sophisticated **LLM-as-Judge Consensus** framework. Two independent models—**Claude 4.5 Sonnet** and **Amazon Nova Pro**—act as judges, scoring each agent run on **semantic accuracy (0–100)**. The final score is a mean average of both judges, minus any deterministic tool-use penalties.
 
-**Methodology:**
-- **Metrics**: 9/9 PASS | 94% average semantic accuracy score.
-- **Scoring**: Validated against 9 scenario types using an **LLM-as-Judge** framework—a separate Claude instance independently scores each agent run on semantic accuracy, while the evaluator applies a deterministic **-10 tool-call penalty** per expected tool that was missed or skipped.
-- **Coverage**: Performance is validated across negative cases (suppressing incorrect syncs on Gift Items), early-exit prevention on healthy products, episodic memory fast-pathing, and multi-step A2A escalation.
+**Current Performance Baseline:**
+- **Pass Rate**: 100% (9/9 scenarios)
+- **Average Consensus Score**: 96/100
+- **Deterministic Tool Penalty**: -10 pts per missed expected tool invocation
 
 <details>
-<summary>📊 Latest Eval Run Results (The Receipts)</summary>
+<summary><b>View "The Receipts" (Full Consensus Log Suite)</b></summary>
 
 ```text
-============================================
-  🧑⚖️  LLM-as-Judge Evaluation Suite
-  📋 Suite   : Operations Hub - Full Reconciliation Diagnostics v2
-  🤖 Judge   : Claude 4.5 Sonnet (Bedrock)
-  ✅ Threshold: 70/100
-============================================
+📝 [Scenario 1: Generic Availability Complaint]
+✅ PASS | 📊 Consensus: 100/100 (Claude: 100, Nova: 100, Pen: -0)
+🧑‍⚖️  Claude   : Identifed root cause and used correct tools for inventory/price sync.
+🧑‍⚖️  Nova     : Accurate root cause identification and successful verification.
 
-📝 [Generic Availability Complaint (Inventory + Price Both Down)]
-✅ PASS | 📊 Score: 100/100
-🧑⚖️  Judgment: Agent correctly identified both inventory and pricing issues, investigated upstream systems, executed both sync operations, and verified the fix.
+📝 [Scenario 2: Specific Price Complaint]
+✅ PASS | 📊 Consensus: 100/100 (Claude: 100, Nova: 100, Pen: -0)
+🧑‍⚖️  Claude   : Correctly identified price disparity and triggered price sync.
+🧑‍⚖️  Nova     : Agent correctly remediated price discrepancy and verified success.
 
-📝 [Specific Price Complaint on SELLABLE Product]
-✅ PASS | 📊 Score: 100/100
-🧑⚖️  Judgment: Agent correctly identified price discrepancy, investigated upstream, triggered price sync, and verified the fix.
+📝 [Scenario 3: Episodic Memory Fast-Path]
+✅ PASS | 📊 Consensus: 98/100 (Claude: 100, Nova: 95, Pen: -0)
+🧑‍⚖️  Claude   : Correct identified episodic memory indicator for previous fix.
+🧑‍⚖️  Nova     : Accurate identification of root cause and used correct tool.
 
-📝 [Episodic Memory Fast-Path (SKU 1029)]
-✅ PASS | 📊 Score: 95/100
-🧑⚖️  Judgment: Agent recalled SKU 1029 was previously fixed, triggered sync to clear the DynamoDB lock, and verified the fix.
+📝 [Scenario 4: PIM Metadata Complaint]
+✅ PASS | 📊 Consensus: 98/100 (Claude: 100, Nova: 95, Pen: -0)
+🧑‍⚖️  Claude   : Identified PIM metadata root cause and triggered syncs across systems.
+🧑‍⚖️  Nova     : Identified root cause and successfully verified resolution.
 
-📝 [PIM Metadata Complaint (Wrong Product Name)]
-✅ PASS | 85/100
-🧑⚖️  Judgment: Agent identified PIM metadata discrepancy, investigated upstream, synced PIM data, though it performed extra syncs beyond the core issue.
+📝 [Scenario 5: Full Reconciliation — All Systems]
+✅ PASS | 📊 Consensus: 98/100 (Claude: 100, Nova: 95, Pen: -0)
+🧑‍⚖️  Claude   : Correctly identified all three system failures as root causes.
+🧑‍⚖️  Nova     : Accurate identification of causes and successful sync tool usage.
 
-📝 [Full Reconciliation — All Systems Down]
-✅ PASS | 📊 Score: 95/100
-🧑⚖️  Judgment: Agent identified all three root causes (INV/PRC/PIM), queried all upstream systems, triggered appropriate syncs, and verified seller status.
+📝 [Scenario 6: DLQ Recovery — Guide Consultation]
+✅ PASS | 📊 Consensus: 95/100 (Claude: 95, Nova: 95, Pen: -0)
+🧑‍⚖️  Claude   : Applied troubleshooting guide resolution and triggered sync.
+🧑‍⚖️  Nova     : Identified root cause, applied guide resolution and verified remediation.
 
-📝 [DLQ Recovery — Sync Failure + Guide Consultation]
-✅ PASS | 📊 Score: 100/100
-🧑⚖️  Judgment: Agent correctly identified root cause from DLQ, applied guide resolution, retried sync, and verified fix.
+📝 [Scenario 7: L2 Detective — Handoff Escalation]
+✅ PASS | 📊 Consensus: 95/100 (Claude: 100, Nova: 90, Pen: -0)
+🧑‍⚖️  Claude   : Properly diagnosed DynamoDB throttling and escalated as instructed.
+🧑‍⚖️  Nova     : Accurately identified root cause and provided appropriate escalation.
 
-📝 [L2 Detective Handoff — Systemic Infrastructure Failure]
-✅ PASS | 📊 Score: 95/100
-🧑⚖️  Judgment: Agent identified DynamoDB write throttling as root cause, investigated DLQ appropriately, and properly escalated to infrastructure team.
+📝 [Scenario 8: Gift Item Validation — Expected Zero Price]
+✅ PASS | 📊 Consensus: 100/100 (Claude: 100, Nova: 100, Pen: -0)
+🧑‍⚖️  Claude   : Correct identified promotional $0.00 as valid business state.
+🧑‍⚖️  Nova     : Perfectly aligns with ground truth for GFT- SKU logic.
 
-📝 [Gift Item Validation — Expected Zero Price]
-✅ PASS | 📊 Score: 95/100
-🧑⚖️  Judgment: Agent correctly identified valid gift item with intentional $0.00 price and suppressed unnecessary sync.
-
-📝 [Transient Error & Silent Recovery]
-✅ PASS | 📊 Score: 85/100
-🧑⚖️  Judgment: Agent correctly identified inventory issue and took remediation action, though it missed reporting the transient 503 error in the recovery narrative.
+📝 [Scenario 9: Transient Error & Silent Recovery]
+✅ PASS | 📊 Consensus: 83/100 (Claude: 85, Nova: 80, Pen: -0)
+🧑‍⚖️  Claude   : Correct remediated 503 error via silent retry but missed summary mention.
+🧑‍⚖️  Nova     : Correct identified the issue but did not mention the silent recovery.
 
 ============================================
   🏆 FINAL RESULTS
-  Pass Rate  : 100%  (9/9 scenarios)
-  Avg Score  : 94/100
+  Pass Rate  : 100% (9/9 scenarios)
+  Avg Score  : 96/100
 ============================================
 ```
 
@@ -162,4 +165,4 @@ The Bedrock Operations Hub is validated against 9 distinct scenario types using 
 - **A2A Context Optimization**: Implemented the **L2 Detective sub-agent** handoff to minimize context-window bloat, delegating deep-trace analytical tasks to a specialized agentic domain only when needed.
 
 ---
-*Created by Palamkunnel Sujith for the Bedrock Agent Portfolio.*
+*Created by [Palamkunnel Sujith](https://www.linkedin.com/in/sujithpvarghese/) for the Bedrock Agent Portfolio.*

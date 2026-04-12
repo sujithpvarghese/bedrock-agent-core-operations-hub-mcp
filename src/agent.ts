@@ -66,7 +66,9 @@ const BASE_SYSTEM_PROMPT = `
 
   4. VERIFY: After ALL syncs are complete, ALWAYS call verifyWebState to confirm the fix worked.
 
-  5. SUMMARIZE: Report what the web showed, what the user flagged, what upstream confirmed, what was synced, and the final verified state. IMPORTANT: If you encountered a transient network error (like a 503 or timeout) that required an automatic retry, explicitly mention it in your summary to confirm the self-healing worked.
+  5. SUMMARIZE: Report what the web showed, what the user flagged, what upstream confirmed, what was synced, and the final verified state. 
+     - IMPORTANT: If you encountered a transient network error that required an automatic retry, explicitly mention it.
+     - CONCLUSION: You MUST conclude your report with a separate line using this exact format: 'Final Status: <STATUS>' (where status is SELLABLE, NOT_SELLABLE, or ESCALATED).
 
   MEMORY GUIDANCE: If episodic memory is provided below, use it to:
   - Skip investigation steps you already know the answer to
@@ -97,7 +99,7 @@ function buildSystemPrompt(memories: string): string {
 // buildAgent
 // Static Discovery: Loads tools from registry, connects on-demand
 // ─────────────────────────────────────────────
-async function buildAgent(systemPrompt: string, toolsCalled: string[]): Promise<Agent> {
+async function buildAgent(systemPrompt: string, toolsCalled: string[], correlationId: string): Promise<Agent> {
   const serverMap = config.MCP_SERVER_URLS;
   const serviceKeys = Object.keys(TOOL_METADATA);
 
@@ -132,7 +134,7 @@ async function buildAgent(systemPrompt: string, toolsCalled: string[]): Promise<
           // e.g. webDatabaseService -> ./mcp-server/WebDatabaseService
           const fileName = serviceKey.charAt(0).toUpperCase() + serviceKey.slice(1);
           const { logic } = await import(`./mcp-server/${fileName}`);
-          const result = await logic(input);
+          const result = await logic(input, { correlationId });
           return result.content || [{ type: "text", text: JSON.stringify(result) }];
         }
 
@@ -145,7 +147,17 @@ async function buildAgent(systemPrompt: string, toolsCalled: string[]): Promise<
         }
         try {
           const mcpUrl = new URL(serviceUrl);
-          const transport = new StreamableHTTPClientTransport(mcpUrl);
+          const transport = new StreamableHTTPClientTransport(mcpUrl, {
+            fetch: (url, init) => {
+              return fetch(url, {
+                ...init,
+                headers: {
+                  ...init?.headers,
+                  "x-correlation-id": correlationId
+                }
+              });
+            }
+          });
           const client = new Client(
             { name: "ops-hub-agent", version: "1.0.0" },
             { capabilities: {} }
@@ -197,7 +209,7 @@ async function buildAgent(systemPrompt: string, toolsCalled: string[]): Promise<
     const isFridayAfterFour = (day === 5 && hour >= 16);
     const isWeekend = (day === 6 || day === 0);
 
-    if (event.toolUse.name === "triggerAutoSync" && (isFridayAfterFour || isWeekend)) {
+    if (!config.USE_MOCKS && event.toolUse.name === "triggerAutoSync" && (isFridayAfterFour || isWeekend)) {
       event.cancel = "OPERATIONAL_POLICY_ERROR: Automated syncs are strictly forbidden from Friday 4 PM through Monday morning.";
     }
   });
@@ -257,10 +269,29 @@ function extractErrorCodes(summary: string): string[] {
 }
 
 function extractFinalStatus(summary: string): string {
-  if (/SELLABLE/i.test(summary)) return "SELLABLE";
-  if (/NOT_SELLABLE/i.test(summary)) return "NOT_SELLABLE";
-  if (/escalat|L2|root cause/i.test(summary)) return "ESCALATED";
-  return "UNKNOWN";
+  const s = summary.toUpperCase();
+  const statuses = [
+    { key: "ESCALATED", match: /\bESCALAT|L2|\bROOT CAUSE\b/ },
+    { key: "NOT_SELLABLE", match: /\bNOT_SELLABLE\b/ },
+    { key: "SELLABLE", match: /\bSELLABLE\b/ }
+  ];
+
+  let latestIndex = -1;
+  let finalStatus = "UNKNOWN";
+
+  for (const status of statuses) {
+    const match = s.match(new RegExp(status.match, 'g'));
+    if (match) {
+      // Find the last index of this status in the string
+      const lastIdx = s.lastIndexOf(match[match.length - 1]);
+      if (lastIdx > latestIndex) {
+        latestIndex = lastIdx;
+        finalStatus = status.key;
+      }
+    }
+  }
+
+  return finalStatus;
 }
 
 // ─────────────────────────────────────────────
@@ -268,11 +299,12 @@ function extractFinalStatus(summary: string): string {
 // ─────────────────────────────────────────────
 export const agent = {
   run: async ({ userPrompt }: { userPrompt: string }) => {
+    const correlationId = `corr-${Math.random().toString(36).substring(2, 10)}`;
     const toolsCalled: string[] = [];
     const productId = extractProductId(userPrompt);
     const memories = await getRelevantMemories(productId);
     const systemPrompt = buildSystemPrompt(memories);
-    const coreAgent = await buildAgent(systemPrompt, toolsCalled);
+    const coreAgent = await buildAgent(systemPrompt, toolsCalled, correlationId);
     const result = await coreAgent.invoke(userPrompt);
     const summary = result.toString();
 

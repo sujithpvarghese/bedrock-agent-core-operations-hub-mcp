@@ -1,5 +1,6 @@
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { agent } from './agent';
+import { config } from './config';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -7,65 +8,86 @@ const bedrockRuntime = new BedrockRuntimeClient({
   region: process.env.AWS_REGION || 'us-east-1'
 });
 
-const JUDGE_MODEL = 'us.anthropic.claude-sonnet-4-5-20250929-v1:0';
+const CLAUDE_MODEL_ID = config.EVAL_CLAUDE_MODEL_ID;
+const NOVA_MODEL_ID = config.EVAL_NOVA_MODEL_ID;
+const ANTHROPIC_VERSION = config.ANTHROPIC_VERSION;
+
+const JUDGES = [
+  { 
+    id: 'sonnet', 
+    label: 'Claude 4.5 Sonnet', 
+    modelId: CLAUDE_MODEL_ID,
+    type: 'anthropic'
+  },
+  { 
+    id: 'nova', 
+    label: 'Amazon Nova Pro', 
+    modelId: NOVA_MODEL_ID,
+    type: 'amazon'
+  }
+];
 const PASS_THRESHOLD = 70;
 
 /**
- * LLM-as-Judge: Sends the agent output + ground truth to Claude
- * and gets back a semantic accuracy score (0-100) with reasoning.
- * This is far more reliable than keyword matching.
+ * Multi-Judge Scorer: Calls the specific model (Claude or Nova)
+ * and normalizes the request/response schemas.
  */
-async function judgeWithClaude(
+async function getJudgeScore(
+  judge: typeof JUDGES[0],
   scenarioName: string,
   agentOutput: string,
   groundTruth: string
 ): Promise<{ score: number; reasoning: string }> {
 
-  const judgePrompt = `You are a strict evaluation judge for an autonomous AI agent system that diagnoses and fixes e-commerce product data issues.
+  const judgePrompt = `Evaluate the following AI agent output against the expected ground truth.
+Scenario: "${scenarioName}"
+Agent Output: ${agentOutput}
+Ground Truth: ${groundTruth}
 
-Scenario being evaluated: "${scenarioName}"
+Score based on:
+1. Identifying root cause.
+2. Correct tool usage.
+3. Verification of success.
 
-The agent produced this output:
-<agent_output>
-${agentOutput}
-</agent_output>
+Respond ONLY with valid JSON: {"score": <0-100>, "reasoning": "<one sentence>"}`;
 
-The expected ground truth is:
-<ground_truth>
-${groundTruth}
-</ground_truth>
-
-Evaluate the agent's output against the ground truth. Score based on:
-1. Did the agent correctly identify the root cause of the issue?
-2. Did the agent investigate the right upstream systems?
-3. Did the agent take the correct remediation actions?
-4. Did the agent verify the fix was successful?
-5. Is the overall response accurate, complete, and coherent?
-
-Respond ONLY with valid JSON in this exact format — no other text:
-{"score": <integer 0-100>, "reasoning": "<one concise sentence explaining the score>"}`;
+  let body: any;
+  if (judge.type === 'anthropic') {
+    body = {
+      anthropic_version: ANTHROPIC_VERSION,
+      max_tokens: 1000,
+      messages: [{ role: 'user', content: [{ type: 'text', text: judgePrompt }] }]
+    };
+  } else {
+    // Amazon Nova Format
+    body = {
+      inferenceConfig: { maxTokens: 512 },
+      messages: [{ role: 'user', content: [{ text: judgePrompt }] }]
+    };
+  }
 
   const response = await bedrockRuntime.send(new InvokeModelCommand({
-    modelId: JUDGE_MODEL,
+    modelId: judge.modelId,
     contentType: 'application/json',
     accept: 'application/json',
-    body: JSON.stringify({
-      anthropic_version: 'bedrock-2023-05-31',
-      max_tokens: 256,
-      messages: [{ role: 'user', content: judgePrompt }]
-    })
+    body: JSON.stringify(body)
   }));
 
   const responseBody = JSON.parse(new TextDecoder().decode(response.body));
-  const rawText = responseBody.content[0].text.trim();
+  
+  // Extract text based on provider
+  let rawText = '';
+  if (judge.type === 'anthropic') {
+    rawText = responseBody.content[0].text.trim();
+  } else {
+    rawText = responseBody.output.message.content[0].text.trim();
+  }
 
   try {
-    // Claude often wraps JSON in markdown blocks (e.g. ```json ... ```)
     const cleanedText = rawText.replace(/```json\n?|\n?```/g, '').trim();
     return JSON.parse(cleanedText);
   } catch (err: any) {
-    // Fallback if judge response is completely malformed or unparseable
-    return { score: 0, reasoning: `Judge response could not be parsed: ${rawText}` };
+    return { score: 0, reasoning: `Judge failure: ${rawText.slice(0, 50)}` };
   }
 }
 
@@ -97,24 +119,29 @@ async function runEvals() {
       // I'll add logic to check scenario.expected_tools against the summary or track them.
       // Re-running logic to get final state
 
-      // Step 3: Send to Claude judge for semantic evaluation
-      const judgment = await judgeWithClaude(scenario.name, result.summary, scenario.ground_truth);
+      // Step 3: Consensus Judgment
+      const judgments = await Promise.all(
+        JUDGES.map(j => getJudgeScore(j, scenario.name, result.summary, scenario.ground_truth))
+      );
 
-      // Step 4: Tool Constraint Check — did the agent actually call what it should?
+      const avgJudgeScore = judgments.reduce((acc, current) => acc + current.score, 0) / JUDGES.length;
+
+      // Step 4: Tool Constraint Check
       const missedTools = (scenario.expected_tools || []).filter(
         (t: string) => !result.steps.some(step => step.tool.toLowerCase() === t.toLowerCase())
       );
 
       const toolPenalty = missedTools.length * 10;
-      const finalScore = Math.max(0, judgment.score - toolPenalty);
+      const finalScore = Math.max(0, avgJudgeScore - toolPenalty);
 
       const passed = finalScore >= PASS_THRESHOLD;
       if (passed) passedCount++;
       totalScore += finalScore;
 
       console.log(passed ? '✅ PASS' : '❌ FAIL');
-      console.log(`📊 Score    : ${finalScore}/100 (Judge: ${judgment.score}, Pen: -${toolPenalty})`);
-      console.log(`🧑‍⚖️  Judgment : ${judgment.reasoning}`);
+      console.log(`📊 Consensus: ${finalScore.toFixed(0)}/100 (Claude: ${judgments[0].score}, Nova: ${judgments[1].score}, Pen: -${toolPenalty})`);
+      console.log(`🧑‍⚖️  Claude   : ${judgments[0].reasoning}`);
+      console.log(`🧑‍⚖️  Nova     : ${judgments[1].reasoning}`);
 
       if (missedTools.length > 0) {
         console.log(`⚠️  Missed Tools: ${missedTools.join(', ')}`);

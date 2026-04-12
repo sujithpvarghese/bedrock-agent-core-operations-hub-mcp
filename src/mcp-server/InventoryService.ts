@@ -4,8 +4,8 @@ import { logger } from "../logger";
 
 const IS_MOCK = process.env.USE_MOCKS !== "false";
 
-export const logic = async ({ skuId, productId }: any) => {
-  console.log("MCP_TOOL_CALL_checkInventory", { skuId, productId });
+export const logic = async ({ skuId, productId }: any, { correlationId }: { correlationId: string }) => {
+  logger.info("MCP_TOOL_CALL_checkInventory", { skuId, productId, correlationId });
   // Accept either skuId or productId — use whichever is provided
   const lookupId = skuId ?? productId ?? "unknown";
 

@@ -4,8 +4,8 @@ import { logger } from "../logger";
 
 const IS_MOCK = process.env.USE_MOCKS !== "false";
 
-export const logic = async ({ productId }: any) => {
-  logger.info("MCP_TOOL_CALL_checkWebDatabase", { productId });
+export const logic = async ({ productId }: any, { correlationId }: { correlationId: string }) => {
+  logger.info("MCP_TOOL_CALL_checkWebDatabase", { productId, correlationId });
   if (IS_MOCK) {
     if (productId === "prod000") return { content: [{ type: "text", text: JSON.stringify({ productId, webInventory: 0, webPrice: 0, status: "NOT_SELLABLE", reason: ["inventory", "pricing"] })}] };
     if (productId === "prod666") return { content: [{ type: "text", text: JSON.stringify({ productId, webInventory: 100, webPrice: 9.99, status: "SELLABLE", note: "User says price is wrong" }) }] };

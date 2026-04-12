@@ -4,8 +4,8 @@ import { logger } from "../logger";
 
 const IS_MOCK = process.env.USE_MOCKS !== "false";
 
-export const logic = async ({ productId }: any) => {
-  logger.info("MCP_TOOL_CALL_verifyWebState", { productId });
+export const logic = async ({ productId }: any, { correlationId }: { correlationId: string }) => {
+  logger.info("MCP_TOOL_CALL_verifyWebState", { productId, correlationId });
   if (IS_MOCK) {
     // Return the "corrected" state for verification
     const webPrice = (productId === "prod666" || productId === "prod_9982" || productId === "prod000") ? 24.99 : 199.99;
