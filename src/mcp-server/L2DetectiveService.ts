@@ -42,6 +42,9 @@ const checkCloudTrailLogs = new FunctionTool({
     } 
   },
   callback: async ({ targetId, logGroupName }: any) => {
+    // Note: Since this tool is defined in the same scope as the handler's logic,
+    // we would ideally need a way to pass the ID. For now, we'll log what's available
+    // or we can refactor to a factory-provided context if the SDK supports it.
     logger.info("LOG_QUERY_START", { targetId, logGroupName });
 
     if (IS_MOCK) {
@@ -107,14 +110,14 @@ const l2DetectiveAgent = new Agent({
 // ─────────────────────────────────────────────
 // MCP Server — exposes delegateToL2Detective
 // ─────────────────────────────────────────────
-export const logic = async (input: any) => {
+export const logic = async (input: any, { correlationId }: { correlationId: string }) => {
   const { errorCode, targetProduct } = input;
-  logger.info("MCP_TOOL_CALL_delegateToL2Detective", { errorCode, targetProduct });
-  logger.info("A2A_HANDOFF", { to: "L2Detective", errorCode, targetProduct });
+  logger.info("MCP_TOOL_CALL_delegateToL2Detective", { errorCode, targetProduct, correlationId });
+  logger.info("A2A_HANDOFF", { to: "L2Detective", errorCode, targetProduct, correlationId });
   const investigation = await l2DetectiveAgent.invoke(
     `Find root cause for error: ${errorCode} on ${targetProduct ?? "system"}`
   );
-  logger.info("A2A_COMPLETE", { verdict: investigation.toString().slice(0, 100) });
+  logger.info("A2A_COMPLETE", { verdict: investigation.toString().slice(0, 100), correlationId });
   return {
     content: [{
       type: "text" as const,

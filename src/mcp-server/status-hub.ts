@@ -7,11 +7,12 @@ import { logger } from "../logger";
  */
 
 
-export const handler = async (_event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> => {
+export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> => {
+  const correlationId = (event.headers["x-correlation-id"] as string) || `hub-${Date.now()}`;
   const urlsText = process.env.MCP_SERVER_URLS || "";
   const mcpUrls = urlsText.split(",").map(u => u.trim()).filter(Boolean);
 
-  logger.info("STATUS_HUB_PROBE_START", { serverCount: mcpUrls.length });
+  logger.info("STATUS_HUB_PROBE_START", { serverCount: mcpUrls.length, correlationId });
 
   const results = await Promise.all(
     mcpUrls.map(async (url) => {
@@ -19,7 +20,7 @@ export const handler = async (_event: APIGatewayProxyEventV2): Promise<APIGatewa
       try {
         const response = await fetch(url, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "x-correlation-id": correlationId },
           body: JSON.stringify({
             jsonrpc: "2.0",
             id: "probe-" + start,

@@ -11,12 +11,12 @@ const generateCorrelationId = () => `corr-${Math.random().toString(36).substring
  * Creates a Lambda handler that exposes a single MCP tool with its implementation.
  */
 export function createToolHandler(
-  metadata: ToolMetadata, 
+  metadata: ToolMetadata,
   implementation: (args: any, context: { correlationId: string }) => Promise<any>
 ) {
   return async (event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> => {
     const correlationId = (event.headers["x-correlation-id"] as string) || generateCorrelationId();
-    
+
     try {
       const server = new McpServer({
         name: `mcp-${metadata.name}`,
@@ -42,11 +42,11 @@ export function createToolHandler(
           description: "Internal health check probe",
           inputSchema: {},
         },
-        async () => ({ 
+        async () => ({
           content: [{ type: "text", text: "OK" }],
-          metadata: { 
-            timestamp: new Date().toISOString(), 
-            version: "1.0.0", 
+          metadata: {
+            timestamp: new Date().toISOString(),
+            version: "1.0.0",
             lambda: metadata.name,
             correlationId
           }
@@ -80,9 +80,9 @@ export function createToolHandler(
       return {
         statusCode: 500,
         headers: { "x-correlation-id": correlationId },
-        body: JSON.stringify({ 
-          error: `MCP Tool Error: ${metadata.name}`, 
-          message: error instanceof Error ? error.message : "Unknown" 
+        body: JSON.stringify({
+          error: `MCP Tool Error: ${metadata.name}`,
+          message: error instanceof Error ? error.message : "Unknown"
         }),
       };
     }

@@ -4,8 +4,9 @@ import { logger } from "../logger";
 
 const IS_MOCK = process.env.USE_MOCKS !== "false";
 
-export const logic = async ({ styleId, productId }: any) => {
+export const logic = async ({ styleId, productId }: any, { correlationId }: { correlationId: string }) => {
   const lookId = styleId ?? productId ?? "unknown";
+  logger.info("MCP_TOOL_CALL_checkPimService", { lookId, correlationId });
   if (IS_MOCK) {
     return {
       content: [{ type: "text", text: JSON.stringify({

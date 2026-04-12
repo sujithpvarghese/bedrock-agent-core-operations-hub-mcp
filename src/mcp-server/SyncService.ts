@@ -6,9 +6,9 @@ const IS_MOCK = process.env.USE_MOCKS !== "false";
 
 const syncAttempts = new Map<string, number>();
 
-export const logic = async ({ productId, skuId, syncType }: any) => {
+export const logic = async ({ productId, skuId, syncType }: any, { correlationId }: { correlationId: string }) => {
   const target = productId ?? skuId ?? "unknown";
-  logger.info(`MCP_TOOL_CALL_triggerAutoSync_${syncType}`, { target });
+  logger.info(`MCP_TOOL_CALL_triggerAutoSync_${syncType}`, { target, correlationId });
   const syncId = `sync-${syncType}-${Date.now()}`;
 
   // Track attempts to simulate persistent failures for L2 Detective tests

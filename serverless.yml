@@ -53,6 +53,7 @@ functions:
     memorySize: 512
     environment:
       MCP_SERVER_URLS: *mcpUrls
+      USE_MOCKS: false
       AGENTCORE_RUNTIME_ID: !Ref AgentCoreRuntime
       AGENTCORE_MEMORY_ID: !Ref AgentCoreRuntime # Assuming Memory ID is same as Runtime ID for this resource type
     events:

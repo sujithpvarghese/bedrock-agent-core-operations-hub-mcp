@@ -4,8 +4,8 @@ import { logger } from "../logger";
 
 const IS_MOCK = process.env.USE_MOCKS !== "false";
 
-export const logic = async ({ errorCode, query }: any) => {
-  logger.info("MCP_TOOL_CALL_queryGuide", { query });
+export const logic = async ({ errorCode, query }: any, { correlationId }: { correlationId: string }) => {
+  logger.info("MCP_TOOL_CALL_queryGuide", { query, correlationId });
   if (IS_MOCK) {
     if (errorCode?.toUpperCase().includes("TIMEOUT") || errorCode === "ConsumerDatabaseTimeoutException") {
       return {
