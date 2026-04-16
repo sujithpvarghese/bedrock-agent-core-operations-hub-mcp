@@ -17,6 +17,7 @@ import {
 import { config } from "./config";
 import { logger } from "./logger";
 import { TOOL_METADATA } from "./mcp-tools";
+import { classify, formatHint } from "./classifier";
 
 
 // ─────────────────────────────────────────────
@@ -30,29 +31,47 @@ const model = new BedrockModel({
 
 // ─────────────────────────────────────────────
 // Base system prompt — reasoning cycle only
-// ─────────────────────────────────────────────
+//
+// ── ARCHITECTURE NOTE (LLM Cascading / Triage Router) ──
+// The following "EXTRACT INTENT" step has been DEPRECATED and removed from the active prompt.
+// Instead of passing heavy triage rules to Sonnet (which wastes tokens and risks attention-dilution), 
+// we now use a lightweight Claude Haiku Few-Shot Classifier (see classifier.ts) to pre-diagnose the issue.
+// Haiku injects a "Pre-Diagnosis Hint" into the context dynamically, saving ~60% in exploratory tool costs.
+// 
+// OLD STEP 0 (For historical portfolio reference):
+// 0. EXTRACT INTENT: Before calling any tool, classify the user's complaint as either GENERIC or SPECIFIC.
+//
+//    GENERIC complaints (vague availability issues — any system could be the cause):
+//    - e.g. "not showing on site", "not online", "can't find product", "not visible on web"
+//    - Action: Do NOT pre-mark any system. Proceed to Step 1 and let checkWebDatabase + its reason array fully drive the investigation.
+//
+//    SPECIFIC complaints (user has identified a particular data problem):
+//    - "price is wrong" or "price looks off"     → pre-mark 'pricing' as suspect.
+//    - "out of stock" or "inventory looks wrong"  → pre-mark 'inventory' as suspect.
+//    - "wrong name", "wrong image", "wrong description", "not published" → pre-mark 'pim' as suspect.
+//    - Action: Pre-marked systems MUST be investigated in Step 2, even if checkWebDatabase returns SELLABLE.
+// ────────────────────────────────────────────────────────────
+
 const BASE_SYSTEM_PROMPT = `
   You are an autonomous e-commerce operations hub. Your goal is to diagnose and self-heal product data issues.
+  
+  ── DATA PRIORITY HIERARCHY ──
+  When multiple signals conflict, resolve them in this strictly enforced order:
+  1. VERIFIED TOOL OUTPUTS (Highest) → Empirical data from checkWebDatabase, checkInventory, etc.
+  2. SYSTEM SIGNALS (High)         → The 'reason' array returned by checkWebDatabase.
+  3. PRE-DIAGNOSIS HINT (Medium)   → The injected Haiku hint (used only for initial direction).
+  4. USER INPUT (Lowest)           → User complaints can be inaccurate. Never trust the user over the tools!
+
+  If a lower-priority signal contradicts a higher-priority signal, you MUST follow the higher-priority signal.
+
   Follow this strict reasoning cycle:
-
-  0. EXTRACT INTENT: Before calling any tool, classify the user's complaint as either GENERIC or SPECIFIC.
-
-     GENERIC complaints (vague availability issues — any system could be the cause):
-     - e.g. "not showing on site", "not online", "can't find product", "not visible on web"
-     - Action: Do NOT pre-mark any system. Proceed to Step 1 and let checkWebDatabase + its reason array fully drive the investigation.
-
-     SPECIFIC complaints (user has identified a particular data problem):
-     - "price is wrong" or "price looks off"     → pre-mark 'pricing' as suspect.
-     - "out of stock" or "inventory looks wrong"  → pre-mark 'inventory' as suspect.
-     - "wrong name", "wrong image", "wrong description", "not published" → pre-mark 'pim' as suspect.
-     - Action: Pre-marked systems MUST be investigated in Step 2, even if checkWebDatabase returns SELLABLE.
 
   1. CHECK WEB STATE: Call checkWebDatabase to get the current site state (webInventory, webPrice, status, reason).
      - If status is SELLABLE AND the user has NOT stated a specific concern → stop and inform the user, no fix needed.
      - If status is NOT_SELLABLE → use the 'reason' array to identify which systems to investigate.
      - If status is SELLABLE BUT the user stated a specific concern (e.g. "price is wrong") → proceed to step 2 using the user's stated concern as the triage signal instead of the reason array.
 
-  2. INVESTIGATE UPSTREAM: Only call upstream systems that are flagged — either from the 'reason' array OR from the user's stated intent in step 0.
+  2. INVESTIGATE UPSTREAM: Only call upstream systems that are flagged — either from the 'reason' array OR from the injected Pre-Diagnosis Hint.
      - inventory flagged → call checkInventory and compare upstream stock vs webInventory.
      - pricing flagged   → call checkPricing and compare upstream price vs webPrice.
      - pim flagged       → call checkPimService and compare upstream metadata vs web metadata.
@@ -303,7 +322,15 @@ export const agent = {
     const toolsCalled: string[] = [];
     const productId = extractProductId(userPrompt);
     const memories = await getRelevantMemories(productId);
-    const systemPrompt = buildSystemPrompt(memories);
+
+    // Phase 0: Lightweight Intent Classification (Haiku)
+    let systemPromptHint = "";
+    const classification = await classify(userPrompt, correlationId);
+    if (classification) {
+      systemPromptHint = formatHint(classification);
+    }
+
+    const systemPrompt = buildSystemPrompt(memories) + systemPromptHint;
     const coreAgent = await buildAgent(systemPrompt, toolsCalled, correlationId);
     const result = await coreAgent.invoke(userPrompt);
     const summary = result.toString();

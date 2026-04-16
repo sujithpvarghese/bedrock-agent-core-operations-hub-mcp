@@ -8,6 +8,8 @@
     "build": "tsc",
     "deploy": "sls deploy",
     "eval": "tsx src/evaluator.ts",
+    "benchmark": "tsx src/benchmark.ts",
+    "cli": "tsx src/cli.ts",
     "dev:agent": "tsx src/agent.ts",
     "dev:inventory": "tsx src/mcp-server/InventoryService.ts",
     "dev:webdb": "tsx src/mcp-server/WebDatabaseService.ts",
