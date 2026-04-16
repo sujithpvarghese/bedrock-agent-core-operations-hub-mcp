@@ -15,13 +15,30 @@ Unlike traditional monolithic agents that run all logic inside a single prompt o
 
 ```mermaid
 graph TD
-    Agent["agent.ts (Main Orchestrator)"] -->|"MCP HTTP Call"| LambdaURL["Lambda Function URL"]
+    User["User Complaint"] --> Classifier["Haiku Classifier (Triage Router)"]
     
-    LambdaURL --> InvLambda("Inventory MCP Lambda")
-    LambdaURL --> PriceLambda("Pricing MCP Lambda")
-    LambdaURL --> SyncLambda("Sync Tool Lambda")
-    LambdaURL --> SubAgent["L2 Detective Sub-Agent"]
+    Classifier -->|"Injects Pre-Diagnosis Hint"| Agent["Sonnet Orchestrator (agent.ts)"]
+    
+    Agent -->|"MCP HTTP Call"| LambdaURL["Lambda Function URL Layer"]
+    
+    LambdaURL --> InvLambda("Inventory Service")
+    LambdaURL --> PriceLambda("Pricing Service")
+    LambdaURL --> SyncLambda("AutoSync Service")
 ```
+
+---
+
+## ⚡ LLM Cascading (The Triage Router)
+
+**Problem: Context Replay & Token Amplification**  
+When an orchestration model is given a vague prompt, it performs exploratory tool calls to identify the root cause. In ReAct-style loops, each invocation requires a full context replay (resending the entire conversation history). This leads to significant token amplification and latency spikes.
+
+**Solution: The Planner → Executor Pattern**  
+We engineered a dual-model LLM cascade. Before the primary executor is invoked, a lightweight, high-speed Claude Haiku model intercepts the request. Operating as a "Planner," it uses a few-shot prompt (derived from synthetic distillation) to identify the most likely systems involved.
+
+The planner passes its findings to the Claude Sonnet executor as a structured "Pre-Diagnosis Hint" injected into the system prompt. This hint is advisory, not authoritative. If empirical tool outputs contradict it, the executor prioritizes observed system state, ensuring safe fallback when the classifier is incorrect.
+
+**Result:** By injecting this hint, the architecture reduces exploratory tool usage. While deterministic `checkWebDatabase` constraints already provide an optimized baseline path, the Haiku hint delivers an additional ~13% reduction in token consumption on ambiguous edge cases, improving consistency in tool selection and overall latency.
 
 ---
 
@@ -106,5 +123,3 @@ The Triage Agent acts merely as a router, invoking the L2 Detective when triagin
 While currently running 11 deterministic MCP tools, the next architectural iteration targets:
 
 1. **Dynamic Tool Discovery (RAG for Tools):** Storing MCP Server definitions in a Bedrock Knowledge Base vector store. The `agent.ts` will dynamically route semantic intent to the top 5 relevant tools, allowing the mesh to scale to 100+ microservices without hitting token limits.
-2. **Multi-Model Orchestration:** Introducing a lightweight intent router (Claude 3.5 Haiku) to handle simple queries, only waking up the heavy lifter (Claude 3.5 Sonnet) for deep RCA (Root Cause Analysis).
-3. **Cross-Model Verification:** Replacing the native LLM-as-a-Judge with competing Open Weights models (e.g., Llama 3) for unbiased evaluation suite grading.

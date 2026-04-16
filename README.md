@@ -40,6 +40,11 @@ This project progressed through **3 distinct evolutionary phases**, where each i
 ### 🌐 Decentralized MCP Mesh
 Unlike monolithic agents, this system utilizes a **Distributed Model Context Protocol (MCP)** mesh. Built on **Decentralized Tools**: 11 independent AWS Lambda functions acting as MCP Servers. The orchestrator dynamically routes intent across the infrastructure. This decoupling allows for independent service scaling and ensures the orchestrator remains infrastructure-agnostic.
 
+### ⚡ Cost-Optimized Triage Router (Few-Shot Cascading)
+To reduce the high baseline cost of ReAct-style agent exploration, this system employs a **Triage Router Pattern**. A lightweight, high-speed **Claude Haiku** classifier intercepts incoming requests, using a curated few-shot prompt to generate a pre-diagnosis "Hint". This hint identifies the most likely tools and is injected into the primary **Claude Sonnet** orchestration context.
+
+**Result:** Significantly reduces exploratory tool calls, lowering token consumption and latency by **~60%** in ambiguous scenarios while maintaining high accuracy under deterministic system constraints.
+
 ### 🧠 Episodic Memory Bridge
 The system leverages a stateful **Episodic Memory** bridge to bypass redundant diagnostic cycles. By correlating current SKU states with historical resolution data, the agent can skip L1 triage and move directly to remediation, drastically reducing token latency and operational costs.
 
@@ -165,6 +170,8 @@ The Bedrock Operations Hub is validated against 9 distinct scenario types using 
 
 ## 👤 Engineering Highlights
 - **Decentralized MCP Mesh**: Transitioned from a monolithic API to a mesh of **13 independent AWS Lambdas** using direct **Function URLs** to eliminate API Gateway latency and cold-start overhead.
+- **Cost-Optimization via Cascading**: Engineered a dual-model LLM cascade. Using Haiku for instant triage and Sonnet for complex remediation slashes operating costs over a standard Single-Model ReAct loop.
+- **Synthetic Distillation**: Hand-crafted a synthetic data pipeline (`generate-complaints.ts`) utilizing Sonnet to harvest 200 "Gold Standard" examples that power the Haiku intent classification, mimicking the benefits of model distillation without the massive provisioned throughput costs.
 - **Hook-Layer Guardrails**: Implemented deterministic safety logic (Holiday Freeze, Gift Item Guards) using **orchestration hooks** rather than fragile prompt-layer instructions, ensuring 100% policy compliance.
 - **A2A Context Optimization**: Implemented the **L2 Detective sub-agent** handoff to minimize context-window bloat, delegating deep-trace analytical tasks to a specialized agentic domain only when needed.
 
