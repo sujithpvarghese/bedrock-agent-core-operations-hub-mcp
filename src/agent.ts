@@ -168,12 +168,13 @@ async function buildAgent(systemPrompt: string, toolsCalled: string[], correlati
           const mcpUrl = new URL(serviceUrl);
           const transport = new StreamableHTTPClientTransport(mcpUrl, {
             fetch: (url, init) => {
+              const headers = new Headers(init?.headers);
+              headers.set("x-correlation-id", correlationId);
+              headers.set("Accept", "application/json, text/event-stream");
+              
               return fetch(url, {
                 ...init,
-                headers: {
-                  ...init?.headers,
-                  "x-correlation-id": correlationId
-                }
+                headers
               });
             }
           });
@@ -215,11 +216,25 @@ async function buildAgent(systemPrompt: string, toolsCalled: string[], correlati
   });
 
   agent.addHook(BeforeToolCallEvent, (event) => {
+    // 🛡️ Budget Circuit Breaker
+    const totalCallsKey = "total_tool_calls_session";
+    const currentTotal = (event.agent.appState.get(totalCallsKey) as number) ?? 0;
+    const newTotal = currentTotal + 1;
+    event.agent.appState.set(totalCallsKey, newTotal);
+
+    if (newTotal > config.MAX_TOOL_CALLS) {
+      const errorMsg = `COST_SAFETY_ERROR: Budget circuit breaker tripped! Total tool calls (${newTotal}) exceeded the session limit of ${config.MAX_TOOL_CALLS}. Stopping to prevent excessive Bedrock costs. Please investigate the logs for potential infinite loops.`;
+      logger.error("CIRCUIT_BREAKER_TRIPPED", { newTotal, limit: config.MAX_TOOL_CALLS });
+      event.cancel = errorMsg;
+      return;
+    }
+
     toolsCalled.push(event.toolUse.name);
     logger.info("AGENT_TOOL_START", {
       tool: event.toolUse.name,
       id: event.toolUse.toolUseId,
-      input: event.toolUse.input
+      input: event.toolUse.input,
+      sessionTotal: newTotal
     });
 
     const now = new Date();
@@ -253,13 +268,19 @@ async function buildAgent(systemPrompt: string, toolsCalled: string[], correlati
       }
     }
 
-    // Transient Error Logic
+    // Transient Error Logic — only retry networking blips
+    const errorMessage = event.error?.message.toUpperCase() || "";
     const isTransientError =
-      event.error?.message.includes("TIMEOUT") ||
-      event.error?.message.includes("504") ||
-      event.error?.message.includes("503");
+      errorMessage.includes("TIMEOUT") ||
+      errorMessage.includes("504") ||
+      errorMessage.includes("503") ||
+      errorMessage.includes("502") ||
+      errorMessage.includes("429"); // Rate limiting is transient
 
-    if (isTransientError) {
+    // Protocol errors like "Not Acceptable" (406) should NEVER be retried
+    const isProtocolError = errorMessage.includes("NOT ACCEPTABLE") || errorMessage.includes("406");
+
+    if (isTransientError && !isProtocolError) {
       const retryKey = `retry_count_${event.toolUse.toolUseId}`;
       const currentRetries = (event.agent.appState.get(retryKey) as number) ?? 0;
 
@@ -349,6 +370,24 @@ export const agent = {
 
 export const handler = async (event: any) => {
   try {
+    const headers = event.headers || {};
+    const clientKey = headers["x-api-key"] || headers["X-API-KEY"];
+
+    // 🔒 Security Layer: SSM-Backed Shared Secret
+    if (config.INTERNAL_KEY && clientKey !== config.INTERNAL_KEY) {
+      logger.warn("UNAUTHORIZED_ACCESS_ATTEMPT", { 
+        hasHeader: !!clientKey,
+        correlationId: `unauth-${Math.random().toString(36).substring(2, 6)}` 
+      });
+      return { 
+        statusCode: 403, 
+        body: JSON.stringify({ 
+          error: "Forbidden", 
+          message: "Unauthorized: Missing or invalid x-api-key header. Check SSM Parameter Store: /ops-hub/api-key" 
+        }) 
+      };
+    }
+
     const body = typeof event.body === "string" ? JSON.parse(event.body) : event.body;
     if (!body?.textMessage) return { statusCode: 400, body: JSON.stringify({ error: "Missing textMessage" }) };
     const result = await agent.run({ userPrompt: body.textMessage });

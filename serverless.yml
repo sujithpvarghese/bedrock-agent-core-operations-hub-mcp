@@ -1,5 +1,6 @@
+# "org" ensures this Service is used with the correct Serverless Framework Access Key.
+org: sujithpvarghese
 service: bedrock-agent-core-ops-mcp
-frameworkVersion: "4"
 
 provider:
   name: aws
@@ -10,39 +11,32 @@ provider:
   environment:
     AWS_NODEJS_CONNECTION_REUSE_ENABLED: "1"
     USE_MOCKS: ${self:custom.useMocks.${self:provider.stage}}
+    MAX_TOOL_CALLS: 15
+    INTERNAL_KEY: ${ssm:/ops-hub/api-key, 'mock-key-for-local'}
   iam:
     role:
       statements:
         - Effect: Allow
           Action: [bedrock:InvokeModel]
-          Resource: ["arn:aws:bedrock:${aws:region}::foundation-model/us.anthropic.claude-sonnet-4-5-20250929-v1:0"]
+          Resource: 
+            - "arn:aws:bedrock:*::foundation-model/*"
+            - "arn:aws:bedrock:*:${aws:accountId}:inference-profile/*"
         - Effect: Allow
           Action: [bedrock-agent-runtime:RetrieveAndGenerate, bedrock-agent-runtime:Retrieve]
           Resource: ["arn:aws:bedrock:${aws:region}:${aws:accountId}:knowledge-base/*"]
         - Effect: Allow
           Action: [bedrock-agentcore:BatchCreateMemoryRecords, bedrock-agentcore:RetrieveMemoryRecords, bedrock-agentcore:ListMemoryRecords, bedrock-agentcore:BatchDeleteMemoryRecords]
-          Resource: [!Sub "arn:aws:bedrock-agentcore:${aws:region}:${aws:accountId}:runtime/${AgentCoreRuntime}"]
+          Resource: [!Sub "arn:aws:bedrock-agentcore:${aws:region}:${aws:accountId}:runtime/${self:custom.memoryId}"]
         - Effect: Allow
           Action: [logs:FilterLogEvents, logs:DescribeLogStreams, logs:StartQuery, logs:GetQueryResults]
           Resource: ["*"]
 
-plugins:
-  - serverless-esbuild
+# Removed serverless-esbuild plugin as it conflicts with Serverless v4 builtin.
 
 # ── Reusable URL list (YAML anchor) ────────────────────────────────────────
 # Add new services here only — agent + statusHub both pick them up automatically
-x-mcp-server-urls: &mcpUrls >
-  webDatabaseService:${cf:${self:service}-${self:provider.stage}.WebDatabaseServiceLambdaUrl},
-  inventoryService:${cf:${self:service}-${self:provider.stage}.InventoryServiceLambdaUrl},
-  pricingService:${cf:${self:service}-${self:provider.stage}.PricingServiceLambdaUrl},
-  pimService:${cf:${self:service}-${self:provider.stage}.PimServiceLambdaUrl},
-  dlqService:${cf:${self:service}-${self:provider.stage}.DlqServiceLambdaUrl},
-  guideService:${cf:${self:service}-${self:provider.stage}.GuideServiceLambdaUrl},
-  syncService:${cf:${self:service}-${self:provider.stage}.SyncServiceLambdaUrl},
-  verificationService:${cf:${self:service}-${self:provider.stage}.VerificationServiceLambdaUrl},
-  memoryListService:${cf:${self:service}-${self:provider.stage}.MemoryListServiceLambdaUrl},
-  memoryDeleteService:${cf:${self:service}-${self:provider.stage}.MemoryDeleteServiceLambdaUrl},
-  l2DetectiveService:${cf:${self:service}-${self:provider.stage}.L2DetectiveServiceLambdaUrl}
+x-mcp-server-urls: &mcpUrls
+  Fn::Sub: "webDatabaseService:${WebDatabaseServiceLambdaFunctionUrl.FunctionUrl},inventoryService:${InventoryServiceLambdaFunctionUrl.FunctionUrl},pricingService:${PricingServiceLambdaFunctionUrl.FunctionUrl},pimService:${PimServiceLambdaFunctionUrl.FunctionUrl},dlqService:${DlqServiceLambdaFunctionUrl.FunctionUrl},guideService:${GuideServiceLambdaFunctionUrl.FunctionUrl},syncService:${SyncServiceLambdaFunctionUrl.FunctionUrl},verificationService:${VerificationServiceLambdaFunctionUrl.FunctionUrl},memoryListService:${MemoryListServiceLambdaFunctionUrl.FunctionUrl},memoryDeleteService:${MemoryDeleteServiceLambdaFunctionUrl.FunctionUrl},l2DetectiveService:${L2DetectiveServiceLambdaFunctionUrl.FunctionUrl}"
 
 functions:
 
@@ -54,12 +48,9 @@ functions:
     environment:
       MCP_SERVER_URLS: *mcpUrls
       USE_MOCKS: false
-      AGENTCORE_RUNTIME_ID: !Ref AgentCoreRuntime
-      AGENTCORE_MEMORY_ID: !Ref AgentCoreRuntime # Assuming Memory ID is same as Runtime ID for this resource type
-    events:
-      - http:
-          path: chat
-          method: post
+      AGENTCORE_RUNTIME_ID: ${self:custom.memoryId}
+      AGENTCORE_MEMORY_ID: ${self:custom.memoryId}
+    url: true
 
   # ── Distributed MCP Tool Services ─────────────────────────────
   webDatabaseService:
@@ -130,14 +121,11 @@ functions:
 
 resources:
   Resources:
-    AgentCoreRuntime:
-      Type: AWS::Bedrock::AgentCoreRuntime
-      Properties:
-        RuntimeName: OperationsHubRuntime-MultiMCP-v3
-        Description: "Multi-Lambda MCP Hub — episodic memory + isolated scaling"
-        MemoryConfiguration: { EpisodeTtl: 86400, LongTermMemoryEnabled: true }
+
 
   Outputs:
+    AgentOrchestratorUrl:
+      Value: !GetAtt AgentOrchestratorLambdaFunctionUrl.FunctionUrl
     StatusHubUrl:
       Value: !GetAtt StatusHubLambdaFunctionUrl.FunctionUrl
     WebDatabaseServiceLambdaUrl:
@@ -164,9 +152,11 @@ resources:
       Value: !GetAtt L2DetectiveServiceLambdaFunctionUrl.FunctionUrl
 
 custom:
+  memoryId: "OperationsHubMemory" # Change this to your actual Bedrock Memory ID
   useMocks:
     dev: "true"
     prod: "false"
+build:
   esbuild:
     bundle: true
     minify: true
