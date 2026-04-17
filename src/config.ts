@@ -25,6 +25,8 @@ const envSchema = z.object({
   }),
   WEB_DB_LOG_GROUP: z.string().optional(),
   AGENT_MODEL_ID: z.string().default("us.anthropic.claude-sonnet-4-5-20250929-v1:0"),
+  MAX_TOOL_CALLS: z.string().transform((v) => parseInt(v, 10)).default("15"),
+  INTERNAL_KEY: z.string().optional(),
   L2_MODEL_ID: z.string().default("us.anthropic.claude-sonnet-4-5-20250929-v1:0"),
   EVAL_CLAUDE_MODEL_ID: z.string().default("us.anthropic.claude-sonnet-4-5-20250929-v1:0"),
   EVAL_NOVA_MODEL_ID: z.string().default("us.amazon.nova-pro-v1:0"),
