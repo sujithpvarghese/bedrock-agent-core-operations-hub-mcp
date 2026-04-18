@@ -8,7 +8,10 @@ export const logic = async ({ productId }: any, { correlationId }: { correlation
   logger.info("MCP_TOOL_CALL_verifyWebState", { productId, correlationId });
   if (IS_MOCK) {
     // Return the "corrected" state for verification
-    const webPrice = (productId === "prod666" || productId === "prod_9982" || productId === "prod000") ? 24.99 : 199.99;
+    const isGift = productId?.startsWith("GFT-") || productId?.startsWith("SAMPLE-");
+    const webPrice = isGift ? 0
+      : (productId === "prod666" || productId === "prod_9982" || productId === "prod000") ? 24.99
+      : 199.99;
     const webInventory = (productId === "prod000" || productId === "prod_dlq" || productId === "prod_9982" || productId === "prod777") ? 150 : 100;
     
     // Scenario 7 Handoff: If it's prod_l2, it stays NOT_SELLABLE despite sync

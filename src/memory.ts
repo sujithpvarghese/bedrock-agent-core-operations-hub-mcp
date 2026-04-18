@@ -23,10 +23,7 @@ import { logger } from "./logger";
 
 // Centralized logs now imported from logger.ts.
 
-// ─────────────────────────────────────────────
-// Client — lazily initialised once per Lambda
-// warm invocation reuses the same client
-// ─────────────────────────────────────────────
+// Client setup
 
 let _client: BedrockAgentCoreClient | null = null;
 
@@ -49,9 +46,7 @@ function getMemoryConfig(): { memoryId: string; namespace: string } {
   };
 }
 
-// ─────────────────────────────────────────────
 // Types
-// ─────────────────────────────────────────────
 export interface MemoryEntry {
   memoryContentId: string;
   content: string;
@@ -67,12 +62,10 @@ export interface StoreMemoryInput {
   errorCodes?: string[];   // any error codes encountered
 }
 
-// ─────────────────────────────────────────────
-// getRelevantMemories
-// Called BEFORE the agent runs.
-// Retrieves past episodes relevant to a product via vector search.
-// Returns a formatted string ready to inject into the system prompt.
-// ─────────────────────────────────────────────
+/**
+ * Retrieves past episodes relevant to a product.
+ * Returns a formatted string ready to inject into the system prompt.
+ */
 export async function getRelevantMemories(productId: string): Promise<string> {
   try {
     const { memoryId, namespace } = getMemoryConfig();
@@ -114,11 +107,9 @@ export async function getRelevantMemories(productId: string): Promise<string> {
   }
 }
 
-// ─────────────────────────────────────────────
-// storeMemory
-// Called AFTER the agent completes.
-// Stores what happened for future recall.
-// ─────────────────────────────────────────────
+/**
+ * Stores what happened for future recall.
+ */
 export async function storeMemory(input: StoreMemoryInput): Promise<void> {
   try {
     const { memoryId, namespace } = getMemoryConfig();
@@ -165,11 +156,9 @@ export async function storeMemory(input: StoreMemoryInput): Promise<void> {
   }
 }
 
-// ─────────────────────────────────────────────
-// listAllMemories
-// Used by the listMemories MCP tool (Tool 9).
-// Returns all stored episodes for a product — or all episodes.
-// ─────────────────────────────────────────────
+/**
+ * Returns all stored episodes for a product.
+ */
 export async function listAllMemories(productId?: string): Promise<MemoryEntry[]> {
   try {
     const { memoryId, namespace } = getMemoryConfig();
@@ -178,8 +167,15 @@ export async function listAllMemories(productId?: string): Promise<MemoryEntry[]
     const response = await getAgentCoreClient().send(new ListMemoryRecordsCommand({
       memoryId,
       namespace,
-      maxResults: 50,
+      maxResults: 50, // SCALING_NOTE: Retrieval is capped at 50 records. Matches may be missed if store grows.
     }));
+
+    if (response.memoryRecordSummaries?.length === 50) {
+      logger.warn("MEMORY_LIST_TRUNCATED", { 
+        message: "Retrieved maximum 50 records. Client-side filtering may exclude relevant newer/older entries.",
+        memoryId 
+      });
+    }
 
     if (!response.memoryRecordSummaries?.length) {
       return [];
@@ -207,11 +203,9 @@ export async function listAllMemories(productId?: string): Promise<MemoryEntry[]
   }
 }
 
-// ─────────────────────────────────────────────
-// deleteMemory
-// Used by the deleteMemory MCP tool (Tool 10).
-// Lets the agent or operator clear a stale memory entry.
-// ─────────────────────────────────────────────
+/**
+ * Lets the agent or operator clear a stale memory entry.
+ */
 export async function deleteMemory(memoryRecordId: string): Promise<boolean> {
   try {
     const { memoryId } = getMemoryConfig();
@@ -231,19 +225,17 @@ export async function deleteMemory(memoryRecordId: string): Promise<boolean> {
   }
 }
 
-// ─────────────────────────────────────────────
-// extractProductId
-// Parses the product/SKU ID from a user message.
-// Used to know which product to retrieve/store memory for.
-// ─────────────────────────────────────────────
+/**
+ * Parses the product/SKU ID from a user message.
+ */
 export function extractProductId(userPrompt: string): string {
   // Match common product ID patterns:
   // prod000, prod_9982, prod666, SKU-1029, SKU 1029, style-abc
   const patterns = [
-    /\b(prod[_-]?\w+)\b/i,        // prod000, prod_9982, prod-abc
-    /\bsku[:\s-]?(\w+)\b/i,       // SKU 1029, SKU-1029, sku:abc
-    /\bstyle[:\s-]?(\w+)\b/i,     // style-abc, style: 123
-    /\b([A-Z]{2,}-\d+)\b/,        // ABC-123 format
+    /\b(prod[_\-]\w+|prod\d+\w*)\b/i, // prod_9982, prod-abc, prod000 — NOT the word "product"
+    /\bsku[:\s-]?(\w+)\b/i,           // SKU 1029, SKU-1029, sku:abc
+    /\bstyle[:\s-]?(\w+)\b/i,         // style-abc, style: 123
+    /\b([A-Z]{2,}-\d+)\b/,            // ABC-123, GFT-404 format
   ];
 
   for (const pattern of patterns) {
@@ -257,7 +249,6 @@ export function extractProductId(userPrompt: string): string {
   }
 
   // No product ID found — return a generic key
-  // Memory will still be stored but less targeted
   return "unknown-product";
 }
 

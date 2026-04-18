@@ -16,6 +16,16 @@ export const logic = async ({ errorCode, query }: any, { correlationId }: { corr
         })}]
       };
     }
+
+    if (errorCode === "OPERATIONAL_POLICY_ERROR") {
+      return {
+        content: [{ type: "text", text: JSON.stringify({
+          errorCode,
+          resolution: "Automated syncs are forbidden from Friday 4PM through Monday morning. DO NOT RETRY. Escalate to manual ops or schedule for Monday.",
+          confidence: 1.0,
+        })}]
+      };
+    }
   }
   return { content: [{ type: "text", text: JSON.stringify({ errorCode, resolution: "Standard retry recommended." })}] };
 };

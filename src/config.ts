@@ -8,8 +8,8 @@ import { z } from "zod";
 
 const envSchema = z.object({
   AWS_REGION: z.string().default("us-east-1"),
-  USE_MOCKS: z.string().transform((v) => v !== "false").default("true"),
-  DEBUG_LOGS: z.string().transform((v) => v !== "false").default("true"),
+  USE_MOCKS: z.string().transform((v) => v.toLowerCase() === "true").default("true"),
+  DEBUG_LOGS: z.string().transform((v) => v.toLowerCase() === "true").default("true"),
   AGENTCORE_MEMORY_ID: z.string().default("mock-valid-id-1234567890"),
   AGENTCORE_NAMESPACE: z.string().default("operations-hub"),
   MCP_SERVER_URLS: z.string().optional().transform((v) => {
@@ -31,6 +31,10 @@ const envSchema = z.object({
   EVAL_CLAUDE_MODEL_ID: z.string().default("us.anthropic.claude-sonnet-4-5-20250929-v1:0"),
   EVAL_NOVA_MODEL_ID: z.string().default("us.amazon.nova-pro-v1:0"),
   ANTHROPIC_VERSION: z.string().default("bedrock-2023-05-31"),
+  DDB_TABLE_INVENTORY: z.string().default("DiagInventory-dev"),
+  DDB_TABLE_PRICING: z.string().default("DiagPricing-dev"),
+  DDB_TABLE_PIM: z.string().default("DiagPim-dev"),
+  DDB_TABLE_WEB: z.string().default("DiagWeb-dev"),
 });
 
 export const config = envSchema.parse(process.env);

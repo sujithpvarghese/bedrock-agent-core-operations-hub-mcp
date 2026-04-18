@@ -20,19 +20,17 @@ import { TOOL_METADATA } from "./mcp-tools";
 import { classify, formatHint } from "./classifier";
 
 
-// ─────────────────────────────────────────────
-// Model
-// ─────────────────────────────────────────────
+// Setting up the Bedrock language model configuration
 const model = new BedrockModel({
   modelId: config.AGENT_MODEL_ID,
   region: config.AWS_REGION,
   stream: false,
 });
 
-// ─────────────────────────────────────────────
 // Base system prompt — reasoning cycle only
 //
-// ── ARCHITECTURE NOTE (LLM Cascading / Triage Router) ──
+// Architecture Note: The "EXTRACT INTENT" step was deprecated.
+// We use a Haiku Few-Shot Classifier to pre-diagnose the issue.
 // The following "EXTRACT INTENT" step has been DEPRECATED and removed from the active prompt.
 // Instead of passing heavy triage rules to Sonnet (which wastes tokens and risks attention-dilution), 
 // we now use a lightweight Claude Haiku Few-Shot Classifier (see classifier.ts) to pre-diagnose the issue.
@@ -78,15 +76,20 @@ const BASE_SYSTEM_PROMPT = `
      - If multiple systems are flagged, call them in parallel.
      - After confirming a disparity, ALSO call checkDeadLetterQueue — a stuck DLQ message may explain WHY the web data is stale.
      - If checkDeadLetterQueue returns inDLQ=true with an errorCode, call queryGuide(errorCode) BEFORE attempting any sync.
+     - NOTE: Even when inDLQ=true, you MUST still call the flagged upstream system (e.g. checkInventory) to confirm the actual data disparity before syncing. The DLQ explains the cause; the upstream check confirms the scope.
 
   3. REMEDIATE: For each confirmed discrepancy, call triggerAutoSync with the specific syncType ('inventory', 'price', or 'pim'). Make a separate call per system.
-     - If triggerAutoSync returns SYNC_FAILED with an errorCode: call queryGuide(errorCode) to get the resolution, then retry triggerAutoSync once.
-     - If it fails a second time, do NOT retry again. Instead, escalate and report the error code and guide resolution to the user.
+     - MANDATORY: Always attempt triggerAutoSync at least once before escalating to delegateToL2Detective, regardless of the Pre-Diagnosis Hint.
+     - If triggerAutoSync returns SYNC_FAILED with an errorCode: call queryGuide(errorCode) to get the resolution.
+     - If the resolution is to retry, retry triggerAutoSync once.
+     - If the errorCode is OPERATIONAL_POLICY_ERROR, do NOT retry. Instead, escalate immediately and report the specific policy restriction to the user.
+     - If it fails a second time for other reasons, do NOT retry again. Instead, escalate and report the error code and guide resolution to the user.
+     - ESCALATION NOTE: You must have at least one FAILED sync attempt in your history before calling delegateToL2Detective. Do not skip straight to L2.
 
-  4. VERIFY: After ALL syncs are complete, ALWAYS call verifyWebState to confirm the fix worked.
+  4. VERIFY: If and only if you triggered at least one sync in Step 3, call verifyWebState to confirm the fix worked. Skip this step entirely if no sync was triggered (e.g. when the product is already correct by design, like a gift item with a $0 price).
 
-  5. SUMMARIZE: Report what the web showed, what the user flagged, what upstream confirmed, what was synced, and the final verified state. 
-     - IMPORTANT: If you encountered a transient network error that required an automatic retry, explicitly mention it.
+  5. SUMMARIZE: Report what the web showed, what the user flagged, what upstream confirmed, what was synced, and the final verified state.
+     - MANDATORY RETRY DISCLOSURE: Scan all tool results for any [SYSTEM_NOTE] tags indicating a retry. If found, your summary MUST include a sentence describing which tool was retried and the transient error it encountered (e.g. '⚠️ RETRY NOTE: triggerAutoSync was automatically retried once due to a transient HTTP 503 error and succeeded.').
      - CONCLUSION: You MUST conclude your report with a separate line using this exact format: 'Final Status: <STATUS>' (where status is SELLABLE, NOT_SELLABLE, or ESCALATED).
 
   MEMORY GUIDANCE: If episodic memory is provided below, use it to:
@@ -96,10 +99,7 @@ const BASE_SYSTEM_PROMPT = `
   - If memory says a product was recently fixed — go straight to Step 3 (sync) then Step 4 (verify)
 `;
 
-// ─────────────────────────────────────────────
-// buildSystemPrompt
-// Injects real retrieved memories into the prompt.
-// ─────────────────────────────────────────────
+// Injects actual retrieved episodic memories into the system prompt.
 function buildSystemPrompt(memories: string): string {
   if (!memories) return BASE_SYSTEM_PROMPT;
 
@@ -114,10 +114,7 @@ function buildSystemPrompt(memories: string): string {
 }
 // Simulation logic moved to src/mcp-server/ files.
 
-// ─────────────────────────────────────────────
-// buildAgent
-// Static Discovery: Loads tools from registry, connects on-demand
-// ─────────────────────────────────────────────
+// Static Discovery: Loads tools from the registry and connects on-demand
 async function buildAgent(systemPrompt: string, toolsCalled: string[], correlationId: string): Promise<Agent> {
   const serverMap = config.MCP_SERVER_URLS;
   const serviceKeys = Object.keys(TOOL_METADATA);
@@ -164,31 +161,25 @@ async function buildAgent(systemPrompt: string, toolsCalled: string[], correlati
             text: `Tool error: Service URL for ${meta.name} is not configured.`
           }];
         }
+        const mcpUrl = new URL(serviceUrl);
+        const transport = new StreamableHTTPClientTransport(mcpUrl, {
+          fetch: (url, init) => {
+            const headers = new Headers(init?.headers);
+            headers.set("x-correlation-id", correlationId);
+            headers.set("Accept", "application/json, text/event-stream");
+            return fetch(url, { ...init, headers });
+          }
+        });
+        const client = new Client(
+          { name: "ops-hub-agent", version: "1.0.0" },
+          { capabilities: {} }
+        );
+        await client.connect(transport);
         try {
-          const mcpUrl = new URL(serviceUrl);
-          const transport = new StreamableHTTPClientTransport(mcpUrl, {
-            fetch: (url, init) => {
-              const headers = new Headers(init?.headers);
-              headers.set("x-correlation-id", correlationId);
-              headers.set("Accept", "application/json, text/event-stream");
-              
-              return fetch(url, {
-                ...init,
-                headers
-              });
-            }
-          });
-          const client = new Client(
-            { name: "ops-hub-agent", version: "1.0.0" },
-            { capabilities: {} }
-          );
-
-          await client.connect(transport);
           const result = await client.callTool({
             name: meta.name,
             arguments: input,
           });
-
           return result.content as any;
         } catch (err: unknown) {
           logger.error(`TOOL_CALL_FAILED_${meta.name}`, err, { input, serviceUrl });
@@ -196,6 +187,9 @@ async function buildAgent(systemPrompt: string, toolsCalled: string[], correlati
             type: "text",
             text: `Tool execution error: ${err instanceof Error ? err.message : String(err)}`
           }];
+        } finally {
+          // Always close the client to release HTTP connections on warm containers
+          await client.close().catch(() => {});
         }
       }
     });
@@ -212,11 +206,16 @@ async function buildAgent(systemPrompt: string, toolsCalled: string[], correlati
 
   // Hooks
   agent.addHook(MessageAddedEvent, (event) => {
-    logger.info("AGENT_MESSAGE_ADDED", { message: event.message });
+    try {
+      logger.info("AGENT_MESSAGE_ADDED", { message: event.message });
+    } catch {
+      // SDK message objects can contain internal ContentBlock types that don't serialize cleanly
+      logger.info("AGENT_MESSAGE_ADDED", { role: (event.message as any)?.role ?? "unknown" });
+    }
   });
 
   agent.addHook(BeforeToolCallEvent, (event) => {
-    // 🛡️ Budget Circuit Breaker
+    // Budget Circuit Breaker
     const totalCallsKey = "total_tool_calls_session";
     const currentTotal = (event.agent.appState.get(totalCallsKey) as number) ?? 0;
     const newTotal = currentTotal + 1;
@@ -263,13 +262,16 @@ async function buildAgent(systemPrompt: string, toolsCalled: string[], correlati
       const isGiftSku = productId?.startsWith("GFT-") || productId?.startsWith("SAMPLE-");
 
       if (isZero && isGiftSku) {
-        (event.result as any).content[0].text +=
-          "\n\n🚨 BUSINESS_HINT: This is a 'Gift Item'. A 0.00 price is EXPECTED. DO NOT sync.";
+        const resultContent = (event.result as any).content;
+        if (Array.isArray(resultContent) && resultContent[0]?.text !== undefined) {
+          resultContent[0].text += 
+            "\n🚨 BUSINESS_HINT: This is a 'Gift Item'. A 0.00 price is EXPECTED. DO NOT sync.";
+        }
       }
     }
 
     // Transient Error Logic — only retry networking blips
-    const errorMessage = event.error?.message.toUpperCase() || "";
+    const errorMessage = event.error?.message?.toUpperCase() ?? "";
     const isTransientError =
       errorMessage.includes("TIMEOUT") ||
       errorMessage.includes("504") ||
@@ -279,21 +281,42 @@ async function buildAgent(systemPrompt: string, toolsCalled: string[], correlati
 
     // Protocol errors like "Not Acceptable" (406) should NEVER be retried
     const isProtocolError = errorMessage.includes("NOT ACCEPTABLE") || errorMessage.includes("406");
+    const isPolicyError = errorMessage.includes("OPERATIONAL_POLICY_ERROR");
 
-    if (isTransientError && !isProtocolError) {
+    if (isTransientError && !isProtocolError && !isPolicyError) {
       const retryKey = `retry_count_${event.toolUse.toolUseId}`;
       const currentRetries = (event.agent.appState.get(retryKey) as number) ?? 0;
 
       if (currentRetries < 3) {
         event.agent.appState.set(retryKey, currentRetries + 1);
+        // Store the error reason so the SUCCESSFUL result can be annotated
+        event.agent.appState.set(`retried_reason_${event.toolUse.toolUseId}`, event.error?.message || "transient error");
         event.retry = true;
-        // Inject a hint for the agent to report the retry
-        if (event.result && (event.result as any).content) {
-          (event.result as any).content.push({
-            type: "text",
-            text: `\n\n[SYSTEM_NOTE: This operation was retried due to a transient ${event.error?.message || "error"}. It has now succeeded.]`
-          });
-        }
+      }
+    }
+
+    // If this is a successful result for a previously-retried tool, log the retry and inject system note
+    const retryReason = event.agent.appState.get(`retried_reason_${event.toolUse.toolUseId}`) as string | undefined;
+    if (!event.error && retryReason) {
+      event.agent.appState.delete(`retried_reason_${event.toolUse.toolUseId}`);
+      
+      // Log before injection to ensure capture even if the push fails
+      logger.info("AGENT_TOOL_RETRIED", {
+        tool: event.toolUse.name,
+        id: event.toolUse.toolUseId,
+        reason: retryReason
+      });
+
+      // Inject disclosure into the tool result so the LLM is aware of the silent retry
+      const resultContent = (event.result as any).content;
+      if (Array.isArray(resultContent) && resultContent[0]?.text !== undefined) {
+        resultContent[0].text += 
+          `\n\n[SYSTEM_NOTE: This tool was automatically retried once due to a transient error (${retryReason}) and succeeded.]`;
+        
+        logger.info("RETRY_NOTE_INJECTED", {
+          tool: event.toolUse.name,
+          contentPreview: resultContent[0].text.slice(-100) 
+        });
       }
     }
   });
@@ -311,19 +334,21 @@ function extractErrorCodes(summary: string): string[] {
 function extractFinalStatus(summary: string): string {
   const s = summary.toUpperCase();
   const statuses = [
-    { key: "ESCALATED", match: /\bESCALAT|L2|\bROOT CAUSE\b/ },
-    { key: "NOT_SELLABLE", match: /\bNOT_SELLABLE\b/ },
-    { key: "SELLABLE", match: /\bSELLABLE\b/ }
+    { key: "ESCALATED", pattern: /\bESCALAT[A-Z]*\b|L2|\bROOT CAUSE\b/g },
+    { key: "NOT_SELLABLE", pattern: /\bNOT_SELLABLE\b/g },
+    { key: "SELLABLE", pattern: /\bSELLABLE\b/g }
   ];
 
   let latestIndex = -1;
   let finalStatus = "UNKNOWN";
 
   for (const status of statuses) {
-    const match = s.match(new RegExp(status.match, 'g'));
-    if (match) {
-      // Find the last index of this status in the string
-      const lastIdx = s.lastIndexOf(match[match.length - 1]);
+    // Use matchAll to find all occurrences and their indices
+    const matches = [...s.matchAll(status.pattern)];
+    if (matches.length > 0) {
+      const lastMatch = matches[matches.length - 1];
+      const lastIdx = lastMatch.index ?? -1;
+      
       if (lastIdx > latestIndex) {
         latestIndex = lastIdx;
         finalStatus = status.key;
@@ -334,9 +359,7 @@ function extractFinalStatus(summary: string): string {
   return finalStatus;
 }
 
-// ─────────────────────────────────────────────
 // Public agent interface
-// ─────────────────────────────────────────────
 export const agent = {
   run: async ({ userPrompt }: { userPrompt: string }) => {
     const correlationId = `corr-${Math.random().toString(36).substring(2, 10)}`;
@@ -373,7 +396,7 @@ export const handler = async (event: any) => {
     const headers = event.headers || {};
     const clientKey = headers["x-api-key"] || headers["X-API-KEY"];
 
-    // 🔒 Security Layer: SSM-Backed Shared Secret
+    // Basic validation matching SSM parameters
     if (config.INTERNAL_KEY && clientKey !== config.INTERNAL_KEY) {
       logger.warn("UNAUTHORIZED_ACCESS_ATTEMPT", { 
         hasHeader: !!clientKey,

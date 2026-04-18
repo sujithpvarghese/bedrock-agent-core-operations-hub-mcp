@@ -16,9 +16,7 @@ import { logger } from "./logger";
 
 const client = new BedrockRuntimeClient({ region: config.AWS_REGION });
 
-// ─────────────────────────────────────────────
 // Output Schema
-// ─────────────────────────────────────────────
 export interface ClassificationResult {
   intent: string;
   suspectedSystems: string[];
@@ -28,10 +26,8 @@ export interface ClassificationResult {
   reasoning: string;
 }
 
-// ─────────────────────────────────────────────
-// 12 Few-Shot Examples (curated from 200 synthetic cases)
+// 12 Few-Shot Examples (curated from synthetic cases)
 // These represent the full taxonomy of complaint types the agent handles.
-// ─────────────────────────────────────────────
 const FEW_SHOT_EXAMPLES = [
   // Tier 1: Inventory
   {
@@ -91,13 +87,11 @@ const FEW_SHOT_EXAMPLES = [
   // Tier 12: Infrastructure / L2
   {
     input: "prod_l2 sync keeps failing — we've tried 3 times and it still won't sync",
-    output: { intent: "PERSISTENT_SYNC_FAILURE", suspectedSystems: ["inventory", "dlq"], recommendedTools: ["checkWebDatabase", "checkDeadLetterQueue", "triggerAutoSync", "delegateToL2Detective"], skipTools: ["checkPricing", "checkPimService"], confidence: "HIGH", reasoning: "Three sync failures signals a systemic infrastructure issue. L2 Detective escalation needed." }
+    output: { intent: "PERSISTENT_SYNC_FAILURE", suspectedSystems: ["inventory", "dlq"], recommendedTools: ["checkWebDatabase", "checkDeadLetterQueue", "triggerAutoSync", "delegateToL2Detective"], skipTools: ["checkPricing", "checkPimService"], confidence: "HIGH", reasoning: "Three sync failures signals a systemic infrastructure issue. Attempt sync remediation; escalate to L2 Detective only if it fails." }
   },
 ];
 
-// ─────────────────────────────────────────────
 // Build the few-shot prompt
-// ─────────────────────────────────────────────
 function buildClassifierPrompt(userMessage: string): string {
   const examplesText = FEW_SHOT_EXAMPLES.map((ex, i) =>
     `Example ${i + 1}:
@@ -120,9 +114,7 @@ Input: "${userMessage}"
 Output:`;
 }
 
-// ─────────────────────────────────────────────
 // Main classifier function
-// ─────────────────────────────────────────────
 export async function classify(
   userMessage: string,
   correlationId: string
@@ -194,9 +186,7 @@ export async function classify(
   }
 }
 
-// ─────────────────────────────────────────────
 // Format classification as a system prompt hint
-// ─────────────────────────────────────────────
 export function formatHint(classification: ClassificationResult): string {
   return `
 === PRE-DIAGNOSIS HINT (Haiku Classifier) ===

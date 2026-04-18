@@ -1,6 +1,8 @@
 import { createToolHandler } from "../mcp-server-factory";
 import { TOOL_METADATA } from "../mcp-tools";
 import { logger } from "../logger";
+import { DynamoDBService } from "../services/DynamoDBService";
+import { config } from "../config";
 
 const IS_MOCK = process.env.USE_MOCKS !== "false";
 
@@ -20,7 +22,15 @@ export const logic = async ({ productId }: any, { correlationId }: { correlation
       })}]
     };
   }
-  return { content: [{ type: "text", text: JSON.stringify({ productId, price: 199.99 }) }] };
+  
+  // Production: Query DynamoDB
+  const item = await DynamoDBService.getItem<any>(config.DDB_TABLE_PRICING, { productId });
+  
+  if (!item) {
+    return { content: [{ type: "text", text: JSON.stringify({ productId, status: "NOT_FOUND", error: "Product not found in Pricing system" })}] };
+  }
+
+  return { content: [{ type: "text", text: JSON.stringify(item)}] };
 };
 
 export const handler = createToolHandler(TOOL_METADATA.pricingService, logic);

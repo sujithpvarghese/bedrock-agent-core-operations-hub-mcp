@@ -35,7 +35,7 @@ export function createToolHandler(
         }
       );
 
-      // 🩺 Standard Health Check Tool (Internal)
+      // Standard Health Check Tool (Internal)
       server.registerTool(
         "__health",
         {
