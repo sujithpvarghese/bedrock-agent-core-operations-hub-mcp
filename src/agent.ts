@@ -96,7 +96,7 @@ const BASE_SYSTEM_PROMPT = `
   - Skip investigation steps you already know the answer to
   - Anticipate which systems are likely broken based on history
   - Apply known resolutions for recurring error codes immediately
-  - If memory says a product was recently fixed — go straight to Step 3 (sync) then Step 4 (verify)
+  - If episodic memory contains a successful resolution for this exact productId within the last 7 days — skip Steps 1-2 and go straight to Step 3 (sync) then Step 4 (verify)
 `;
 
 // Injects actual retrieved episodic memories into the system prompt.
@@ -263,9 +263,15 @@ async function buildAgent(systemPrompt: string, toolsCalled: string[], correlati
 
       if (isZero && isGiftSku) {
         const resultContent = (event.result as any).content;
-        if (Array.isArray(resultContent) && resultContent[0]?.text !== undefined) {
-          resultContent[0].text += 
-            "\n🚨 BUSINESS_HINT: This is a 'Gift Item'. A 0.00 price is EXPECTED. DO NOT sync.";
+        if (Array.isArray(resultContent)) {
+          const firstBlock = resultContent[0];
+          const hintText = "\n🚨 BUSINESS_HINT: This is a 'Gift Item'. A 0.00 price is EXPECTED. DO NOT sync.";
+          
+          if (firstBlock?.text !== undefined) {
+            firstBlock.text += hintText;
+          } else if (firstBlock?.json?.$value?.[0]?.text !== undefined) {
+            firstBlock.json.$value[0].text += hintText;
+          }
         }
       }
     }
@@ -309,14 +315,15 @@ async function buildAgent(systemPrompt: string, toolsCalled: string[], correlati
 
       // Inject disclosure into the tool result so the LLM is aware of the silent retry
       const resultContent = (event.result as any).content;
-      if (Array.isArray(resultContent) && resultContent[0]?.text !== undefined) {
-        resultContent[0].text += 
-          `\n\n[SYSTEM_NOTE: This tool was automatically retried once due to a transient error (${retryReason}) and succeeded.]`;
+      if (Array.isArray(resultContent)) {
+        const firstBlock = resultContent[0];
+        const systemNote = `\n\n[SYSTEM_NOTE: This tool was automatically retried once due to a transient error (${retryReason}) and succeeded.]`;
         
-        logger.info("RETRY_NOTE_INJECTED", {
-          tool: event.toolUse.name,
-          contentPreview: resultContent[0].text.slice(-100) 
-        });
+        if (firstBlock?.text !== undefined) {
+          firstBlock.text += systemNote;
+        } else if (firstBlock?.json?.$value?.[0]?.text !== undefined) {
+          firstBlock.json.$value[0].text += systemNote;
+        }
       }
     }
   });
