@@ -100,16 +100,27 @@ export const logic = async (input: any, { correlationId }: { correlationId: stri
   });
 
   logger.info("A2A_HANDOFF", { to: "L2Detective", errorCode, targetProduct, correlationId });
-  const investigation = await l2DetectiveAgent.invoke(
-    `Find root cause for error: ${errorCode} on ${targetProduct ?? "system"}`
-  );
-  logger.info("A2A_COMPLETE", { verdict: investigation.toString().slice(0, 100), correlationId });
-  return {
-    content: [{
-      type: "text" as const,
-      text: JSON.stringify({ l2Verdict: investigation.toString() }),
-    }],
-  };
+  try {
+    const investigation = await l2DetectiveAgent.invoke(
+      `Find root cause for error: ${errorCode} on ${targetProduct ?? "system"}`
+    );
+    logger.info("A2A_COMPLETE", { verdict: investigation.toString().slice(0, 100), correlationId });
+    return {
+      content: [{
+        type: "text" as const,
+        text: JSON.stringify({ l2Verdict: investigation.toString() }),
+      }],
+    };
+  } catch (err: any) {
+    logger.error("A2A_FAILURE", err, { to: "L2Detective", correlationId });
+    return {
+      content: [{
+        type: "text" as const,
+        text: JSON.stringify({ error: "L2 Detective investigation failed", message: err.message }),
+      }],
+      isError: true
+    };
+  }
 };
 
 export const handler = createToolHandler(TOOL_METADATA.l2DetectiveService, logic);

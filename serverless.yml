@@ -17,7 +17,7 @@ provider:
     role:
       statements:
         - Effect: Allow
-          Action: [bedrock:InvokeModel]
+          Action: [bedrock:InvokeModel, bedrock:InvokeModelWithResponseStream]
           Resource: 
             - "arn:aws:bedrock:*::foundation-model/*"
             - "arn:aws:bedrock:*:${aws:accountId}:inference-profile/*"
@@ -111,6 +111,7 @@ functions:
   l2DetectiveService:
     handler: src/mcp-server/L2DetectiveService.handler
     url: true
+    timeout: 60
     memorySize: 512
     environment:
       WEB_DB_LOG_GROUP: /aws/lambda/${self:service}-${self:provider.stage}-webDatabaseService
@@ -119,6 +120,11 @@ functions:
       DDB_TABLE_PIM: !Ref PimTable
       DDB_TABLE_WEB: !Ref WebTable
     iamRoleStatements:
+      - Effect: Allow
+        Action: [bedrock:InvokeModel, bedrock:InvokeModelWithResponseStream]
+        Resource: 
+          - "arn:aws:bedrock:*::foundation-model/*"
+          - "arn:aws:bedrock:*:${aws:accountId}:inference-profile/*"
       - Effect: Allow
         Action: [logs:FilterLogEvents, logs:DescribeLogStreams, logs:StartQuery, logs:GetQueryResults]
         Resource: 

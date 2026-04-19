@@ -30,7 +30,7 @@ export const logger = {
         message: error.message,
         stack: error.stack,
         name: error.name
-      } : String(error),
+      } : (typeof error === 'object' && error !== null) ? error : String(error),
       ...context
     }));
   },

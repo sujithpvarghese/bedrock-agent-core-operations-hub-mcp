@@ -23,7 +23,8 @@ export const logic = async ({ errorCode, query }: any, { correlationId }: { corr
           errorCode,
           resolution: "Automated syncs are forbidden from Friday 4PM through Monday morning. DO NOT RETRY. Escalate to manual ops or schedule for Monday.",
           confidence: 1.0,
-        })}]
+        })}],
+        isError: true,
       };
     }
   }

@@ -37,7 +37,8 @@ export const logic = async ({ productId, skuId, syncType }: any, { correlationId
           status: "SYNC_FAILED",
           errorCode: "PERSISTENT_DB_LOCK",
           message: "Sync failed critically after multiple retries. Systemic infrastructure issue suspected."
-        })}]
+        })}],
+        isError: true
       };
     }
     await new Promise(r => setTimeout(r, 500));
@@ -53,7 +54,8 @@ export const logic = async ({ productId, skuId, syncType }: any, { correlationId
           target,
           errorCode: "CONSUMERDATABASETIMEOUTEXCEPTION",
           message: "Sync failed — DLQ message detected. Call queryGuide for resolution.",
-        })}]
+        })}],
+        isError: true,
       };
     }
 
@@ -73,7 +75,10 @@ export const logic = async ({ productId, skuId, syncType }: any, { correlationId
   try {
     const webItem = await DynamoDBService.getItem<any>(config.DDB_TABLE_WEB, { productId });
     if (!webItem) {
-      return { content: [{ type: "text", text: JSON.stringify({ syncId, status: "SYNC_FAILED", error: "Product not found on Web Store" }) }] };
+      return { 
+        content: [{ type: "text", text: JSON.stringify({ syncId, status: "SYNC_FAILED", error: "Product not found on Web Store" }) }],
+        isError: true 
+      };
     }
 
     let updatedFields: Record<string, any> = {};
@@ -122,13 +127,14 @@ export const logic = async ({ productId, skuId, syncType }: any, { correlationId
       })}]
     };
   } catch (err: any) {
-    logger.error("SYNC_OPERATION_FAILED", { productId, syncType, err });
+    logger.error("SYNC_OPERATION_FAILED", err, { productId, syncType });
     return {
       content: [{ type: "text", text: JSON.stringify({
         syncId,
         status: "SYNC_FAILED",
         error: err.message
-      })}]
+      })}],
+      isError: true
     };
   }
 };
