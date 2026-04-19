@@ -17,7 +17,7 @@ provider:
     role:
       statements:
         - Effect: Allow
-          Action: [bedrock:InvokeModel]
+          Action: [bedrock:InvokeModel, bedrock:InvokeModelWithResponseStream]
           Resource: 
             - "arn:aws:bedrock:*::foundation-model/*"
             - "arn:aws:bedrock:*:${aws:accountId}:inference-profile/*"
@@ -26,17 +26,15 @@ provider:
           Resource: ["arn:aws:bedrock:${aws:region}:${aws:accountId}:knowledge-base/*"]
         - Effect: Allow
           Action: [bedrock-agentcore:BatchCreateMemoryRecords, bedrock-agentcore:RetrieveMemoryRecords, bedrock-agentcore:ListMemoryRecords, bedrock-agentcore:BatchDeleteMemoryRecords]
-          Resource: [!Sub "arn:aws:bedrock-agentcore:${aws:region}:${aws:accountId}:runtime/${self:custom.memoryId}"]
+          Resource: [!Sub "arn:aws:bedrock-agentcore:${aws:region}:${aws:accountId}:memory/${self:custom.memoryId}"]
         - Effect: Allow
-          Action: [logs:FilterLogEvents, logs:DescribeLogStreams, logs:StartQuery, logs:GetQueryResults]
-          Resource: ["*"]
+          Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:Query, dynamodb:UpdateItem]
+          Resource: 
+            - !GetAtt InventoryTable.Arn
+            - !GetAtt PricingTable.Arn
+            - !GetAtt PimTable.Arn
+            - !GetAtt WebTable.Arn
 
-# Removed serverless-esbuild plugin as it conflicts with Serverless v4 builtin.
-
-# ── Reusable URL list (YAML anchor) ────────────────────────────────────────
-# Add new services here only — agent + statusHub both pick them up automatically
-x-mcp-server-urls: &mcpUrls
-  Fn::Sub: "webDatabaseService:${WebDatabaseServiceLambdaFunctionUrl.FunctionUrl},inventoryService:${InventoryServiceLambdaFunctionUrl.FunctionUrl},pricingService:${PricingServiceLambdaFunctionUrl.FunctionUrl},pimService:${PimServiceLambdaFunctionUrl.FunctionUrl},dlqService:${DlqServiceLambdaFunctionUrl.FunctionUrl},guideService:${GuideServiceLambdaFunctionUrl.FunctionUrl},syncService:${SyncServiceLambdaFunctionUrl.FunctionUrl},verificationService:${VerificationServiceLambdaFunctionUrl.FunctionUrl},memoryListService:${MemoryListServiceLambdaFunctionUrl.FunctionUrl},memoryDeleteService:${MemoryDeleteServiceLambdaFunctionUrl.FunctionUrl},l2DetectiveService:${L2DetectiveServiceLambdaFunctionUrl.FunctionUrl}"
 
 functions:
 
@@ -46,9 +44,8 @@ functions:
     timeout: 300
     memorySize: 512
     environment:
-      MCP_SERVER_URLS: *mcpUrls
+      MCP_SERVER_URLS: ${self:custom.mcpServerUrls}
       USE_MOCKS: false
-      AGENTCORE_RUNTIME_ID: ${self:custom.memoryId}
       AGENTCORE_MEMORY_ID: ${self:custom.memoryId}
     url: true
 
@@ -57,21 +54,29 @@ functions:
     handler: src/mcp-server/WebDatabaseService.handler
     url: true
     memorySize: 256
+    environment:
+      DDB_TABLE_WEB: !Ref WebTable
 
   inventoryService:
     handler: src/mcp-server/InventoryService.handler
     url: true
     memorySize: 256
+    environment:
+      DDB_TABLE_INVENTORY: !Ref InventoryTable
 
   pricingService:
     handler: src/mcp-server/PricingService.handler
     url: true
     memorySize: 256
+    environment:
+      DDB_TABLE_PRICING: !Ref PricingTable
 
   pimService:
     handler: src/mcp-server/PimService.handler
     url: true
     memorySize: 512
+    environment:
+      DDB_TABLE_PIM: !Ref PimTable
 
   dlqService:
     handler: src/mcp-server/DlqService.handler
@@ -106,23 +111,83 @@ functions:
   l2DetectiveService:
     handler: src/mcp-server/L2DetectiveService.handler
     url: true
+    timeout: 60
     memorySize: 512
     environment:
       WEB_DB_LOG_GROUP: /aws/lambda/${self:service}-${self:provider.stage}-webDatabaseService
-
+      DDB_TABLE_INVENTORY: !Ref InventoryTable
+      DDB_TABLE_PRICING: !Ref PricingTable
+      DDB_TABLE_PIM: !Ref PimTable
+      DDB_TABLE_WEB: !Ref WebTable
+    iamRoleStatements:
+      - Effect: Allow
+        Action: [bedrock:InvokeModel, bedrock:InvokeModelWithResponseStream]
+        Resource: 
+          - "arn:aws:bedrock:*::foundation-model/*"
+          - "arn:aws:bedrock:*:${aws:accountId}:inference-profile/*"
+      - Effect: Allow
+        Action: [logs:FilterLogEvents, logs:DescribeLogStreams, logs:StartQuery, logs:GetQueryResults]
+        Resource: 
+          - !Sub "arn:aws:logs:${aws:region}:${aws:accountId}:log-group:/aws/lambda/bedrock-agent-core-ops-mcp-${self:provider.stage}-*"
   # ── specialized status hub ─────────────────────────────
   statusHub:
     handler: src/mcp-server/status-hub.handler
+    timeout: 15  # 11 parallel probes × 5s AbortController timeout + Lambda overhead
     url:
       cors: true
     memorySize: 512
     environment:
-      MCP_SERVER_URLS: *mcpUrls
+      MCP_SERVER_URLS: ${self:custom.mcpServerUrls}
 
 resources:
   Resources:
+    InventoryTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: DiagInventory-${self:provider.stage}
+        AttributeDefinitions:
+          - AttributeName: skuId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: skuId
+            KeyType: HASH
+        BillingMode: PAY_PER_REQUEST
 
+    PricingTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: DiagPricing-${self:provider.stage}
+        AttributeDefinitions:
+          - AttributeName: productId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: productId
+            KeyType: HASH
+        BillingMode: PAY_PER_REQUEST
 
+    PimTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: DiagPim-${self:provider.stage}
+        AttributeDefinitions:
+          - AttributeName: productId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: productId
+            KeyType: HASH
+        BillingMode: PAY_PER_REQUEST
+
+    WebTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: DiagWeb-${self:provider.stage}
+        AttributeDefinitions:
+          - AttributeName: productId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: productId
+            KeyType: HASH
+        BillingMode: PAY_PER_REQUEST
   Outputs:
     AgentOrchestratorUrl:
       Value: !GetAtt AgentOrchestratorLambdaFunctionUrl.FunctionUrl
@@ -152,7 +217,10 @@ resources:
       Value: !GetAtt L2DetectiveServiceLambdaFunctionUrl.FunctionUrl
 
 custom:
-  memoryId: "OperationsHubMemory" # Change this to your actual Bedrock Memory ID
+  # Reusable URL list
+  mcpServerUrls:
+    Fn::Sub: "webDatabaseService:${WebDatabaseServiceLambdaFunctionUrl.FunctionUrl},inventoryService:${InventoryServiceLambdaFunctionUrl.FunctionUrl},pricingService:${PricingServiceLambdaFunctionUrl.FunctionUrl},pimService:${PimServiceLambdaFunctionUrl.FunctionUrl},dlqService:${DlqServiceLambdaFunctionUrl.FunctionUrl},guideService:${GuideServiceLambdaFunctionUrl.FunctionUrl},syncService:${SyncServiceLambdaFunctionUrl.FunctionUrl},verificationService:${VerificationServiceLambdaFunctionUrl.FunctionUrl},memoryListService:${MemoryListServiceLambdaFunctionUrl.FunctionUrl},memoryDeleteService:${MemoryDeleteServiceLambdaFunctionUrl.FunctionUrl},l2DetectiveService:${L2DetectiveServiceLambdaFunctionUrl.FunctionUrl}"
+  memoryId: ${ssm:/ops-hub/memory-id, 'OperationsHubMemory'} # Pulls from AWS SSM Parameter store
   useMocks:
     dev: "true"
     prod: "false"
@@ -163,3 +231,6 @@ build:
     sourcemap: true
     target: node22
     platform: node
+    exclude:
+      - '@aws-sdk/*'
+      - '!@aws-sdk/client-bedrock-agentcore' # Surgically bundle ONLY the modern AgentCore SDK, while keeping others externalized.

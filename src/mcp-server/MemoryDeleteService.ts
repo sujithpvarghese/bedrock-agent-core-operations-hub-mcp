@@ -5,15 +5,15 @@ import { deleteMemory } from "../memory";
 
 const IS_MOCK = process.env.USE_MOCKS !== "false";
 
-export const logic = async ({ productId }: any, { correlationId }: { correlationId: string }) => {
-  logger.info("MCP_TOOL_CALL_deleteMemoryByProductId", { productId, correlationId });
+export const logic = async ({ memoryContentId }: any, { correlationId }: { correlationId: string }) => {
+  logger.info("MCP_TOOL_CALL_deleteMemory", { memoryContentId, correlationId });
   if (IS_MOCK) {
     return {
-      content: [{ type: "text", text: JSON.stringify({ memoryContentId: productId, deleted: true, note: "Mock mode — no real memory was deleted" })}]
+      content: [{ type: "text", text: JSON.stringify({ memoryContentId, deleted: true, note: "Mock mode — no real memory was deleted" })}]
     };
   }
-  const deleted = await deleteMemory(productId);
-  return { content: [{ type: "text", text: JSON.stringify({ memoryRecordId: productId, deleted })}] };
+  const deleted = await deleteMemory(memoryContentId);
+  return { content: [{ type: "text", text: JSON.stringify({ memoryRecordId: memoryContentId, deleted })}] };
 };
 
 export const handler = createToolHandler(TOOL_METADATA.memoryDeleteService, logic);

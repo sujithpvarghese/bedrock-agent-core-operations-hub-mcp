@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * 📝 MCP Tool Metadata Registry
+ * MCP Tool Metadata Registry
  *
  * Centralized registry of tool names, descriptions, and Zod input schemas.
  * Each Service Lambda imports its specific metadata from here.
@@ -19,7 +19,7 @@ export interface ToolMetadata {
 
 export const TOOL_METADATA: Record<string, ToolMetadata> = {
 
-  // ── Operational Services ────────────────────────────────────────────────
+  // Operational Services
 
   webDatabaseService: {
     name: "checkWebDatabase",
@@ -76,7 +76,7 @@ export const TOOL_METADATA: Record<string, ToolMetadata> = {
     inputSchema: z.object({ productId: z.string().describe("Product ID to verify.") }),
   },
 
-  // ── Memory Services ─────────────────────────────────────────────────────
+  // Memory Services
 
   memoryListService: {
     name: "listMemories",

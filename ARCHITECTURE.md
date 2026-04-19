@@ -52,18 +52,18 @@ To manage 11 specialized services without code duplication, the architecture use
 
 -   **Standardized Handlers**: Every service automatically inherits standardized logging, error handling, and correlation ID propagation.
 -   **Automated Health Probes**: Each Lambda exposes a `__health` tool by default, allowing the Orchestrator to monitor the mesh status without complex sidecar patterns.
--   **Context Injection**: The factory ensures that cross-cutting concerns (like the Holiday Freeze window) are applied uniformly across the entire tool-set.
+-   **Context Injection**: The factory ensures that cross-cutting concerns (like correlation IDs and metadata) are applied uniformly across the entire tool-set.
 
 ---
 
 ### 🛡️ Operational Guardrails
 
 ### The Flow:
-1. **Pre-Execution Guardrails (`BeforeToolCallEvent`):** Real-world operational safety. The system hooks into remediation tools (like `triggerAutoSync`) and dynamically blocks execution during defined "Holiday Freeze" windows (e.g., Fridays after 4 PM or weekends). This prevents accidental production deployments during peak hours or unmonitored periods.
+1. **Pre-Execution Guardrails (`BeforeToolCallEvent`):** Real-world operational safety. The system hooks into remediation tools (like `triggerAutoSync`) and dynamically blocks execution during defined "Holiday Freeze" windows (e.g., Fridays after 4 PM or weekends). This prevents accidental production deployments during peak hours or unmonitored periods. **Note: These policy-driven blocks are terminal and bypass the stealth retry loop.**
 2. **Observation:** The Agent attempts to invoke an upstream MCP service.
 3. **Error Interception (`AfterToolCallEvent`):** If a `504` or `503` occurs, the orchestrator "hides" the failure from the LLM. It increments a local tracker in the session context.
 4. **Stealth Retries:** The orchestrator re-fires the network request up to 3 times sequentially without the LLM ever knowing a failure occurred. 
-5. **Deterministic Escalation**: If all 3 retries fail, the orchestrator stops intercepting. The accumulated failure history is presented to the LLM, and the system prompt's deterministic escalation rules take over to trigger the L2 Detective.
+5. **Deterministic Escalation**: If all 3 retries fail, or if a terminal `OPERATIONAL_POLICY_ERROR` is encountered, the orchestrator stops intercepting. The accumulated failure history (or policy block) is presented to the LLM, and the system prompt's deterministic escalation rules take over to trigger the L2 Detective or notify the user.
 
 ### 🔄 The Hook Execution Loop
 

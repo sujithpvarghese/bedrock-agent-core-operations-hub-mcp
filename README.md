@@ -43,7 +43,7 @@ Unlike monolithic agents, this system utilizes a **Distributed Model Context Pro
 ### ⚡ Cost-Optimized Triage Router (Few-Shot Cascading)
 To reduce the high baseline cost of ReAct-style agent exploration, this system employs a **Triage Router Pattern**. A lightweight, high-speed **Claude Haiku** classifier intercepts incoming requests, using a curated few-shot prompt to generate a pre-diagnosis "Hint". This hint identifies the most likely tools and is injected into the primary **Claude Sonnet** orchestration context.
 
-**Result:** Significantly reduces exploratory tool calls, lowering token consumption and latency by **~60%** in ambiguous scenarios while maintaining high accuracy under deterministic system constraints.
+**Result:** Significantly reduces exploratory tool calls, lowering token consumption and latency by an additional **~13%** in ambiguous scenarios while maintaining high accuracy under deterministic system constraints.
 
 ### 🧠 Episodic Memory Bridge
 The system leverages a stateful **Episodic Memory** bridge to bypass redundant diagnostic cycles. By correlating current SKU states with historical resolution data, the agent can skip L1 triage and move directly to remediation, drastically reducing token latency and operational costs.

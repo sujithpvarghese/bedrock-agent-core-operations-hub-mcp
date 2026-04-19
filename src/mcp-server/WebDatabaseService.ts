@@ -1,6 +1,8 @@
 import { createToolHandler } from "../mcp-server-factory";
 import { TOOL_METADATA } from "../mcp-tools";
 import { logger } from "../logger";
+import { DynamoDBService } from "../services/DynamoDBService";
+import { config } from "../config";
 
 const IS_MOCK = process.env.USE_MOCKS !== "false";
 
@@ -22,10 +24,19 @@ export const logic = async ({ productId }: any, { correlationId }: { correlation
         webPrice: 199.99,
         status: "SELLABLE",
         reason: [],
+        associatedSkus: ["SKU_MOCK_1"]
       })}]
     };
   }
-  return { content: [{ type: "text", text: JSON.stringify({ productId, status: "SELLABLE", note: "Real logic TBD" })}] };
+  
+  // Production: Query DynamoDB
+  const item = await DynamoDBService.getItem<any>(config.DDB_TABLE_WEB, { productId });
+  
+  if (!item) {
+    return { content: [{ type: "text", text: JSON.stringify({ productId, status: "NOT_FOUND", error: "Product not found on Web site" })}] };
+  }
+
+  return { content: [{ type: "text", text: JSON.stringify(item)}] };
 };
 
 export const handler = createToolHandler(TOOL_METADATA.webDatabaseService, logic);
