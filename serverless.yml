@@ -34,6 +34,15 @@ provider:
             - !GetAtt PricingTable.Arn
             - !GetAtt PimTable.Arn
             - !GetAtt WebTable.Arn
+         # L2 Detective sub-agent needs CloudWatch Logs access for root cause analysis
+        - Effect: Allow
+          Action: [logs:FilterLogEvents, logs:DescribeLogStreams, logs:StartQuery, logs:GetQueryResults]
+          Resource:
+            - !Sub "arn:aws:logs:${aws:region}:${aws:accountId}:log-group:/aws/lambda/bedrock-agent-core-ops-mcp-${self:provider.stage}-*"
+        # Guardrails: input gate + output grounding check on the orchestrator
+        - Effect: Allow
+          Action: [bedrock:ApplyGuardrail]
+          Resource: !GetAtt OperationsHubGuardrail.GuardrailArn
 
 
 functions:
@@ -47,6 +56,8 @@ functions:
       MCP_SERVER_URLS: ${self:custom.mcpServerUrls}
       USE_MOCKS: false
       AGENTCORE_MEMORY_ID: ${self:custom.memoryId}
+      GUARDRAIL_ID: !GetAtt OperationsHubGuardrail.GuardrailId
+      GUARDRAIL_VERSION: DRAFT
     url: true
 
   # ── Distributed MCP Tool Services ─────────────────────────────
@@ -119,16 +130,7 @@ functions:
       DDB_TABLE_PRICING: !Ref PricingTable
       DDB_TABLE_PIM: !Ref PimTable
       DDB_TABLE_WEB: !Ref WebTable
-    iamRoleStatements:
-      - Effect: Allow
-        Action: [bedrock:InvokeModel, bedrock:InvokeModelWithResponseStream]
-        Resource: 
-          - "arn:aws:bedrock:*::foundation-model/*"
-          - "arn:aws:bedrock:*:${aws:accountId}:inference-profile/*"
-      - Effect: Allow
-        Action: [logs:FilterLogEvents, logs:DescribeLogStreams, logs:StartQuery, logs:GetQueryResults]
-        Resource: 
-          - !Sub "arn:aws:logs:${aws:region}:${aws:accountId}:log-group:/aws/lambda/bedrock-agent-core-ops-mcp-${self:provider.stage}-*"
+    # IAM: inherits provider-level role (Bedrock + CloudWatch Logs permissions added there)
   # ── specialized status hub ─────────────────────────────
   statusHub:
     handler: src/mcp-server/status-hub.handler
@@ -188,6 +190,60 @@ resources:
           - AttributeName: productId
             KeyType: HASH
         BillingMode: PAY_PER_REQUEST
+
+    OperationsHubGuardrail:
+      Type: AWS::Bedrock::Guardrail
+      Properties:
+        Name: !Sub ops-hub-guardrail-${self:provider.stage}
+        Description: "Two-stage AI safety gate: input topic/PII/injection filtering + output contextual grounding verification"
+        BlockedInputMessaging: "Your request cannot be processed by the Operations Hub. Please submit a valid e-commerce product operations query."
+        BlockedOutputsMessaging: "The agent response was flagged for safety reasons. Please contact your operations administrator."
+
+        # ── Topic Policy: deny non-e-commerce requests ────────────────────────
+        TopicPolicyConfig:
+          TopicsConfig:
+            - Name: off-topic-requests
+              Definition: "Requests that are not related to e-commerce product operations, inventory management, pricing data, PIM metadata, or system diagnostics"
+              Examples:
+                - "Write me an email to my manager"
+                - "What is the capital of France"
+                - "Help me with my personal finances"
+                - "Generate marketing copy"
+                - "Tell me a joke"
+              Type: DENY
+
+        # ── PII Policy: anonymize accidental data leakage ─────────────────────
+        SensitiveInformationPolicyConfig:
+          PiiEntitiesConfig:
+            - Type: EMAIL
+              Action: ANONYMIZE          # Replace email with [EMAIL]
+            - Type: PHONE
+              Action: ANONYMIZE          # Replace phone with [PHONE]
+            - Type: CREDIT_DEBIT_CARD_NUMBER
+              Action: BLOCK              # Hard block — no card data in ops queries
+            - Type: US_SOCIAL_SECURITY_NUMBER
+              Action: BLOCK
+
+        # ── Content Policy: block prompt injection attacks ────────────────────
+        ContentPolicyConfig:
+          FiltersConfig:
+            - Type: PROMPT_ATTACK
+              InputStrength: HIGH        # Aggressively block jailbreak attempts
+              OutputStrength: NONE       # N/A for output
+            - Type: INSULTS
+              InputStrength: MEDIUM
+              OutputStrength: LOW
+            - Type: HATE
+              InputStrength: HIGH
+              OutputStrength: HIGH
+
+        # ── Grounding Policy: verify output is anchored in tool data ──────────
+        ContextualGroundingPolicyConfig:
+          FiltersConfig:
+            - Type: GROUNDING
+              Threshold: 0.7             # Block responses below 70% grounding score
+            - Type: RELEVANCE
+              Threshold: 0.7             # Block responses not relevant to the query
   Outputs:
     AgentOrchestratorUrl:
       Value: !GetAtt AgentOrchestratorLambdaFunctionUrl.FunctionUrl
@@ -215,6 +271,12 @@ resources:
       Value: !GetAtt MemoryDeleteServiceLambdaFunctionUrl.FunctionUrl
     L2DetectiveServiceLambdaUrl:
       Value: !GetAtt L2DetectiveServiceLambdaFunctionUrl.FunctionUrl
+    GuardrailId:
+      Value: !GetAtt OperationsHubGuardrail.GuardrailId
+      Description: Bedrock Guardrail ID — use for ApplyGuardrail API calls and console lookup
+    GuardrailArn:
+      Value: !GetAtt OperationsHubGuardrail.GuardrailArn
+
 
 custom:
   # Reusable URL list

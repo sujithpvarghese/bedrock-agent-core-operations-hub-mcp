@@ -175,7 +175,7 @@ export function createToolHandler(
         try {
           await mcpClient.close();
         } catch (e) {
-          logger.warn(`MCP_CLIENT_CLOSE_FAILED_${metadata.name}`, { correlationId });
+          logger.warn(`MCP_CLIENT_CLOSE_FAILED_${metadata.name}`, undefined, { correlationId });
         }
       }
     }

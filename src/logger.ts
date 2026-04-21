@@ -35,11 +35,18 @@ export const logger = {
     }));
   },
 
-  warn: (event: string, context?: LogContext) => {
+  warn: (event: string, error?: unknown, context?: LogContext) => {
     console.warn(JSON.stringify({
       timestamp: new Date().toISOString(),
       level: "WARN",
       event,
+      ...(error ? { 
+        error: error instanceof Error ? {
+          message: error.message,
+          stack: error.stack,
+          name: error.name
+        } : (typeof error === 'object' && error !== null) ? error : String(error)
+      } : {}),
       ...context
     }));
   },

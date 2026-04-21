@@ -137,7 +137,7 @@ export async function classify(
     });
 
     const command = new InvokeModelCommand({
-      modelId:     "us.anthropic.claude-3-haiku-20240307-v1:0",
+      modelId:     config.CLASSIFIER_MODEL_ID,
       contentType: "application/json",
       accept:      "application/json",
       body,
@@ -181,7 +181,7 @@ export async function classify(
 
   } catch (err) {
     // Classifier failure must NEVER crash the agent — degrade gracefully
-    logger.warn("CLASSIFIER_FAILED", { correlationId, error: String(err) });
+    logger.warn("CLASSIFIER_FAILED", String(err), { correlationId });
     return null;
   }
 }
