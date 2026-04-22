@@ -103,6 +103,11 @@ functions:
     handler: src/mcp-server/SyncService.handler
     url: true
     memorySize: 512
+    environment:
+      DDB_TABLE_INVENTORY: !Ref InventoryTable
+      DDB_TABLE_PRICING: !Ref PricingTable
+      DDB_TABLE_PIM: !Ref PimTable
+      DDB_TABLE_WEB: !Ref WebTable
 
   verificationService:
     handler: src/mcp-server/VerificationService.handler

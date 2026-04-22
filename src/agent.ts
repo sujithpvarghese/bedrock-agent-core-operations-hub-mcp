@@ -207,12 +207,13 @@ async function buildAgent(systemPrompt: string, toolsCalled: string[], toolResul
 
   // Hooks
   agent.addHook(MessageAddedEvent, (event) => {
-    try {
-      logger.info("AGENT_MESSAGE_ADDED", { message: event.message });
-    } catch {
-      // SDK message objects can contain internal ContentBlock types that don't serialize cleanly
-      logger.info("AGENT_MESSAGE_ADDED", { role: (event.message as any)?.role ?? "unknown" });
-    }
+    // Only log essential, serializable fields to avoid [object Object] serialization issues with circular SDK objects
+    const role = (event.message as any)?.role ?? "unknown";
+    const text = event.message.toString();
+    logger.info("AGENT_MESSAGE_ADDED", {
+      role,
+      contentPreview: text.length > 500 ? text.slice(0, 500) + "..." : text
+    });
   });
 
   agent.addHook(BeforeToolCallEvent, (event) => {
@@ -288,7 +289,9 @@ async function buildAgent(systemPrompt: string, toolsCalled: string[], toolResul
       errorMessage.includes("504") ||
       errorMessage.includes("503") ||
       errorMessage.includes("502") ||
-      errorMessage.includes("429"); // Rate limiting is transient
+      errorMessage.includes("429") || // Rate limiting is transient
+      errorMessage.includes("IAM authorization error") || // Mapped throttling symptom (L2 Detective finding)
+      errorMessage.includes("ThrottlingException");
 
     // Protocol errors like "Not Acceptable" (406) should NEVER be retried
     const isProtocolError = errorMessage.includes("NOT ACCEPTABLE") || errorMessage.includes("406");
@@ -424,10 +427,22 @@ export const handler = async (event: any) => {
     const clientKey = headers["x-api-key"] || headers["X-API-KEY"];
 
     // Basic validation matching SSM parameters
+    // Security Gate: Fail Closed if configuration is missing in non-mock environments
+    if (!config.USE_MOCKS && !config.INTERNAL_KEY) {
+      logger.error("SECURITY_CONFIG_ERROR", new Error("INTERNAL_KEY configuration missing"), { correlationId: (headers["x-correlation-id"] as string) });
+      return {
+        statusCode: 500,
+        body: JSON.stringify({
+          error: "Internal Configuration Error",
+          message: "The security gateway is misconfigured (missing INTERNAL_KEY). Requests are blocked for safety."
+        })
+      };
+    }
+
     if (config.INTERNAL_KEY && clientKey !== config.INTERNAL_KEY) {
       logger.warn("UNAUTHORIZED_ACCESS_ATTEMPT", undefined, {
         hasHeader: !!clientKey,
-        correlationId: `unauth-${Math.random().toString(36).substring(2, 6)}`
+        correlationId: (headers["x-correlation-id"] as string) || `unauth-${Math.random().toString(36).substring(2, 6)}`
       });
       return {
         statusCode: 403,
