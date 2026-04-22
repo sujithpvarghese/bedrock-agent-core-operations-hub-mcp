@@ -26,7 +26,10 @@ const envSchema = z.object({
   WEB_DB_LOG_GROUP: z.string().optional(),
   AGENT_MODEL_ID: z.string().default("us.anthropic.claude-sonnet-4-5-20250929-v1:0"),
   MAX_TOOL_CALLS: z.string().transform((v) => parseInt(v, 10)).default("15"),
-  INTERNAL_KEY: z.string().optional(),
+  CLASSIFIER_MODEL_ID: z.string().default("us.anthropic.claude-3-haiku-20240307-v1:0"),
+  INTERNAL_KEY:      z.string().optional(),
+  GUARDRAIL_ID:      z.string().optional(),       // Bedrock Guardrail ID — omit to skip guardrail checks
+  GUARDRAIL_VERSION: z.string().default("DRAFT"), // "DRAFT" targets the latest saved version
   L2_MODEL_ID: z.string().default("us.anthropic.claude-sonnet-4-5-20250929-v1:0"),
   EVAL_CLAUDE_MODEL_ID: z.string().default("us.anthropic.claude-sonnet-4-5-20250929-v1:0"),
   EVAL_NOVA_MODEL_ID: z.string().default("us.amazon.nova-pro-v1:0"),

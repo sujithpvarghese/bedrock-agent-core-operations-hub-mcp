@@ -18,8 +18,8 @@ export class DynamoDBService {
       }));
       return (result.Item as T) || null;
     } catch (error) {
-      logger.error("DDB_GET_ITEM_FAILED", { tableName, key, error });
-      return null;
+      logger.error("DDB_GET_ITEM_FAILED", error, { tableName, key });
+      throw error; // Propagate the real error (Throttling, etc.) to the caller
     }
   }
 
@@ -49,8 +49,8 @@ export class DynamoDBService {
       }));
       return (result.Items as T[]) || [];
     } catch (error) {
-      logger.error("DDB_QUERY_FAILED", { tableName, params, error });
-      return [];
+      logger.error("DDB_QUERY_FAILED", error, { tableName, params });
+      throw error;
     }
   }
 }

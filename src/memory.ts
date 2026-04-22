@@ -171,7 +171,7 @@ export async function listAllMemories(productId?: string): Promise<MemoryEntry[]
     }));
 
     if (response.memoryRecordSummaries?.length === 50) {
-      logger.warn("MEMORY_LIST_TRUNCATED", { 
+      logger.warn("MEMORY_LIST_TRUNCATED", undefined, { 
         message: "Retrieved maximum 50 records. Client-side filtering may exclude relevant newer/older entries.",
         memoryId 
       });

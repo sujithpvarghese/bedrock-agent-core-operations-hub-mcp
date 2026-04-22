@@ -9,6 +9,7 @@
 [![Strands SDK](https://img.shields.io/badge/Framework-Strands_SDK-purple.svg)](https://github.com/strands-agents/sdk)
 [![AWS Bedrock](https://img.shields.io/badge/AWS-Bedrock-orange.svg)](https://aws.amazon.com/bedrock/)
 [![MCP Protocol](https://img.shields.io/badge/Protocol-MCP-blue.svg)](https://modelcontextprotocol.io/)
+[![Bedrock Guardrails](https://img.shields.io/badge/Security-Bedrock_Guardrails-blueviolet.svg)](https://aws.amazon.com/bedrock/guardrails/)
 [![Serverless v4](https://img.shields.io/badge/Framework-Serverless--v4-red.svg)](https://www.serverless.com/)
 
 ---
@@ -51,13 +52,19 @@ The system leverages a stateful **Episodic Memory** bridge to bypass redundant d
 ### 🛡️ Stealth Resilience
 Implemented a hook-layer retry mechanism that intercepts transient 5xx errors and performs **silent recoveries**. This ensures that minor network blips do not derail the agent's reasoning chain, allowing for optimized task completion rates in unstable production environments.
 
+### 🛡️ Two-Stage AI Safety Gate (Bedrock Guardrails)
+To ensure enterprise-grade safety, the system implements a native **Bedrock Guardrail** policy (configured in `serverless.yml`). This provides a deterministic safety perimeter around the LLM:
+- **Inbound Gate**: Blocks off-topic queries (denying non-e-commerce requests), detects and blocks prompt injection attacks, and automatically anonymizes PII (Email, Phone, CC).
+- **Outbound Check (Grounding)**: Validates the agent's final resolution against raw tool outputs. If the agent hallucinates a fix not supported by the data, the response is flagged with a **Contextual Grounding Warning**.
+
 ### 🕵️ Agent-to-Agent (A2A) Encapsulation
 To maintain strict security boundaries and lean context windows, we implemented **A2A Handoff**. When systemic infrastructure issues are detected, the primary orchestrator encapsulates the problem and hands it off to a specialized **L2 Detective** sub-agent. This specialist possesses its own secure tool registry (CloudWatch, Jira), keeping investigative "noise" out of the primary triage loop.
 
-### 🔒 Operational Guardrails
-Built-in business rules enforced at the hook layer, not the prompt layer:
+### 🔒 Operational Guardrails (Hook Layer)
+Hardcoded business rules enforced at the `@strands-agents/sdk` hook layer, providing a second layer of defense:
 - **Change Freeze Window**: Automated syncs are blocked Friday 4PM → Monday morning. Any attempt returns `OPERATIONAL_POLICY_ERROR`.
-- **Gift Item Guard**: Recognizes that `$0.00` is the **valid business state** for promotional items (`GFT-` or `SAMPLE-`). This prevents the agent from misidentifying these items as pricing errors and triggering unnecessary, redundant remediation cycles.
+- **Gift Item Guard**: Recognizes that `$0.00` is the **valid business state** for promotional items (`GFT-` or `SAMPLE-`). This prevents the agent from misidentifying these items as pricing errors.
+
 
 ### 🛠️ The Stack
 - **Language**: TypeScript & Node.js 22.x (Enterprise-grade type safety).
@@ -92,12 +99,10 @@ npm run eval
 ```
 
 ### Deployment
-Deploy the entire mesh as **13 CloudFormation-managed Lambdas** (1 Orchestrator + 1 StatusHub + 11 Tools) via Serverless Framework.
 ```bash
 sls deploy --stage dev
 ```
 
----
 
 ## 🧪 Evaluation
 
@@ -171,7 +176,7 @@ The Bedrock Operations Hub is validated against 9 distinct scenario types using 
 ## 👤 Engineering Highlights
 - **Decentralized MCP Mesh**: Transitioned from a monolithic API to a mesh of **13 independent AWS Lambdas** using direct **Function URLs** to eliminate API Gateway latency and cold-start overhead.
 - **Cost-Optimization via Cascading**: Engineered a dual-model LLM cascade. Using Haiku for instant triage and Sonnet for complex remediation slashes operating costs over a standard Single-Model ReAct loop.
-- **Synthetic Distillation**: Hand-crafted a synthetic data pipeline (`generate-complaints.ts`) utilizing Sonnet to harvest 200 "Gold Standard" examples that power the Haiku intent classification, mimicking the benefits of model distillation without the massive provisioned throughput costs.
+- **Synthetic Distillation**: Hand-crafted a synthetic data pipeline (`seed-diagnostic-data.ts`) utilizing Sonnet to harvest 200 "Gold Standard" examples that power the Haiku intent classification, mimicking the benefits of model distillation without the massive provisioned throughput costs.
 - **Hook-Layer Guardrails**: Implemented deterministic safety logic (Holiday Freeze, Gift Item Guards) using **orchestration hooks** rather than fragile prompt-layer instructions, ensuring 100% policy compliance.
 - **A2A Context Optimization**: Implemented the **L2 Detective sub-agent** handoff to minimize context-window bloat, delegating deep-trace analytical tasks to a specialized agentic domain only when needed.
 
