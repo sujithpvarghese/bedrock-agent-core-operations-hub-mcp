@@ -24,6 +24,11 @@ graph TD
     LambdaURL --> InvLambda("Inventory Service")
     LambdaURL --> PriceLambda("Pricing Service")
     LambdaURL --> SyncLambda("AutoSync Service")
+
+    subgraph SafetyGate ["Bedrock Guardrail (Safety Perimeter)"]
+        Agent -->|"checkInput"| IG["Input Gate (Topic/PII/Injection)"]
+        IG -->|"checkOutput"| OG["Output Gate (Contextual Grounding)"]
+    end
 ```
 
 ---
@@ -42,9 +47,30 @@ The planner passes its findings to the Claude Sonnet executor as a structured "P
 
 ---
 
-## 🧠 The "Self-Healing" Retry Lifecycle
+## 🛡️ AI Governance & Safety (Bedrock Guardrails)
 
-The most advanced piece of the orchestrator is its fault-tolerance mechanism built into `@strands-agents/sdk` hooks. 
+The architecture implements a **Two-Stage Safety Gate** using native Amazon Bedrock Guardrails. This is distinct from the deterministic business rules in the hook layer.
+
+### Stage 1: The Inbound Perimeter (`checkInput`)
+Before the orchestrator processes a user request, it is intercepted by the **Input Gate**.
+- **Topic Denial**: Rejects requests unrelated to e-commerce operations (e.g., "Tell me a joke" or "Write a song").
+- **Content Filtering**: High-strength protection against Prompt Injection (jailbreak) and offensive content.
+- **PII Anonymization**: Automatically replaces sensitive data (Email, Phone) with `[EMAIL]` or `[PHONE]` tokens before the model sees them.
+
+### Stage 2: The Grounding Perimeter (`checkOutput`)
+Once the orchestrator generates its final resolution summary, the **Output Gate** performs a **Contextual Grounding Filter**.
+- **Source Verification**: The agent's summary is mathematically compared against the raw tool results gathered during the diagnostic process.
+- **Hallucination Prevention**: If the summary contains claims not supported by the tool data (e.g., claiming a sync was successful when the tool output shows a failure), the guardrail flags the response.
+- **User Notification**: Flagged responses are appended with a semantic warning (e.g., `⚠️ GROUNDING WARNING`), maintaining transparency while ensuring the system remains operational.
+
+### 🔄 The Fail-Open Policy
+To prevent a security service from becoming a single point of failure (SPOF) for diagnostics, the Guardrail logic is designed with a **Fail-Open Strategy**. If the Bedrock Guardrail API is unavailable, the system logs a `GUARDRAIL_SERVICE_UNAVAILABLE` warning but allows the diagnostic agent to proceed, ensuring that high-priority inventory issues can still be resolved during provider blips.
+
+---
+
+## 🧠 The "Self-Healing" Retry Lifecycle (Hook Layer)
+
+The system uses a separate layer of deterministic logic built into `@strands-agents/sdk` hooks for hard business rules.
 
 ### 🏗️ Scaling Pattern: The MCP Server Factory
 

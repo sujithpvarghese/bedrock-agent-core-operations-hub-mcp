@@ -117,20 +117,25 @@ export function createToolHandler(
       const lambdaTimeoutMs = context.getRemainingTimeInMillis?.() || 6000;
       const guardTimeoutMs = Math.max(1000, lambdaTimeoutMs - 1000);
 
+      const withTimeout = <T>(promise: Promise<T>): Promise<T> => {
+        let timeoutId: any;
+        const timeout = new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(
+            () => reject(new Error(`MCP bridge ${parsed.method} timeout`)),
+            guardTimeoutMs
+          );
+        });
+        return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
+      };
+
       let result: any;
       if (parsed.method === "tools/list") {
-        result = await Promise.race([
-          mcpClient.listTools(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error("MCP bridge listTools timeout")), guardTimeoutMs))
-        ]);
+        result = await withTimeout(mcpClient.listTools());
       } else if (parsed.method === "tools/call") {
-        result = await Promise.race([
-          mcpClient.callTool({
-            name: parsed.params.name,
-            arguments: parsed.params.arguments,
-          }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error("MCP bridge callTool timeout")), guardTimeoutMs))
-        ]);
+        result = await withTimeout(mcpClient.callTool({
+          name: parsed.params.name,
+          arguments: parsed.params.arguments,
+        }));
       } else {
         return {
           statusCode: 400,
@@ -175,7 +180,7 @@ export function createToolHandler(
         try {
           await mcpClient.close();
         } catch (e) {
-          logger.warn(`MCP_CLIENT_CLOSE_FAILED_${metadata.name}`, { correlationId });
+          logger.warn(`MCP_CLIENT_CLOSE_FAILED_${metadata.name}`, undefined, { correlationId });
         }
       }
     }

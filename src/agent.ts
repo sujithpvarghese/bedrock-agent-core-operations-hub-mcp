@@ -18,6 +18,7 @@ import { config } from "./config";
 import { logger } from "./logger";
 import { TOOL_METADATA } from "./mcp-tools";
 import { classify, formatHint } from "./classifier";
+import { checkInput, checkOutput } from "./guardrails";
 
 
 // Setting up the Bedrock language model configuration
@@ -115,7 +116,7 @@ function buildSystemPrompt(memories: string): string {
 // Simulation logic moved to src/mcp-server/ files.
 
 // Static Discovery: Loads tools from the registry and connects on-demand
-async function buildAgent(systemPrompt: string, toolsCalled: string[], correlationId: string): Promise<Agent> {
+async function buildAgent(systemPrompt: string, toolsCalled: string[], toolResultsLog: string[], correlationId: string): Promise<Agent> {
   const serverMap = config.MCP_SERVER_URLS;
   const serviceKeys = Object.keys(TOOL_METADATA);
 
@@ -206,12 +207,13 @@ async function buildAgent(systemPrompt: string, toolsCalled: string[], correlati
 
   // Hooks
   agent.addHook(MessageAddedEvent, (event) => {
-    try {
-      logger.info("AGENT_MESSAGE_ADDED", { message: event.message });
-    } catch {
-      // SDK message objects can contain internal ContentBlock types that don't serialize cleanly
-      logger.info("AGENT_MESSAGE_ADDED", { role: (event.message as any)?.role ?? "unknown" });
-    }
+    // Only log essential, serializable fields to avoid [object Object] serialization issues with circular SDK objects
+    const role = (event.message as any)?.role ?? "unknown";
+    const text = event.message.toString();
+    logger.info("AGENT_MESSAGE_ADDED", {
+      role,
+      contentPreview: text.length > 500 ? text.slice(0, 500) + "..." : text
+    });
   });
 
   agent.addHook(BeforeToolCallEvent, (event) => {
@@ -248,6 +250,10 @@ async function buildAgent(systemPrompt: string, toolsCalled: string[], correlati
   });
 
   agent.addHook(AfterToolCallEvent, (event) => {
+    // Capture raw tool result BEFORE hint injection — used for grounding check
+    const rawResult = JSON.stringify(event.result ?? {});
+    toolResultsLog.push(`[${event.toolUse.name}]: ${rawResult.slice(0, 800)}`);
+
     logger.info("AGENT_TOOL_END", {
       tool: event.toolUse.name,
       id: event.toolUse.toolUseId,
@@ -283,7 +289,9 @@ async function buildAgent(systemPrompt: string, toolsCalled: string[], correlati
       errorMessage.includes("504") ||
       errorMessage.includes("503") ||
       errorMessage.includes("502") ||
-      errorMessage.includes("429"); // Rate limiting is transient
+      errorMessage.includes("429") || // Rate limiting is transient
+      errorMessage.includes("IAM authorization error") || // Mapped throttling symptom (L2 Detective finding)
+      errorMessage.includes("ThrottlingException");
 
     // Protocol errors like "Not Acceptable" (406) should NEVER be retried
     const isProtocolError = errorMessage.includes("NOT ACCEPTABLE") || errorMessage.includes("406");
@@ -341,7 +349,7 @@ function extractErrorCodes(summary: string): string[] {
 function extractFinalStatus(summary: string): string {
   const s = summary.toUpperCase();
   const statuses = [
-    { key: "ESCALATED", pattern: /\bESCALAT[A-Z]*\b|L2|\bROOT CAUSE\b/g },
+    { key: "ESCALATED", pattern: /\bESCALAT[A-Z]*\b|L2/g },
     { key: "NOT_SELLABLE", pattern: /\bNOT_SELLABLE\b/g },
     { key: "SELLABLE", pattern: /\bSELLABLE\b/g }
   ];
@@ -368,9 +376,10 @@ function extractFinalStatus(summary: string): string {
 
 // Public agent interface
 export const agent = {
-  run: async ({ userPrompt }: { userPrompt: string }) => {
-    const correlationId = `corr-${Math.random().toString(36).substring(2, 10)}`;
+  run: async ({ userPrompt, correlationId: externalCorrelationId }: { userPrompt: string; correlationId?: string }) => {
+    const correlationId = externalCorrelationId ?? `corr-${Math.random().toString(36).substring(2, 10)}`;
     const toolsCalled: string[] = [];
+    const toolResultsLog: string[] = [];   // raw tool outputs — fed to the grounding check
     const productId = extractProductId(userPrompt);
     const memories = await getRelevantMemories(productId);
 
@@ -382,9 +391,17 @@ export const agent = {
     }
 
     const systemPrompt = buildSystemPrompt(memories) + systemPromptHint;
-    const coreAgent = await buildAgent(systemPrompt, toolsCalled, correlationId);
+    const coreAgent = await buildAgent(systemPrompt, toolsCalled, toolResultsLog, correlationId);
     const result = await coreAgent.invoke(userPrompt);
-    const summary = result.toString();
+    let summary = result.toString();
+
+    // Phase 5a: Guardrail Output — contextual grounding check
+    const groundingSource = toolResultsLog.join("\n");
+    const outputCheck = await checkOutput(summary, groundingSource, correlationId);
+    if (!outputCheck.allowed) {
+      summary += `\n\n⚠️ GROUNDING WARNING: ${outputCheck.blockedMessage}`;
+      logger.warn("AGENT_SUMMARY_UNGROUNDED", undefined, { correlationId, reasons: outputCheck.interventionReasons });
+    }
 
     await storeMemory({
       productId,
@@ -394,7 +411,13 @@ export const agent = {
       errorCodes: extractErrorCodes(summary),
     });
 
-    return { summary, steps: toolsCalled.map(t => ({ tool: t })) };
+    return {
+      summary,
+      steps: toolsCalled.map(t => ({ tool: t })),
+      ...(outputCheck.action === "GUARDRAIL_INTERVENED"
+        ? { guardrail: { stage: "output", action: outputCheck.action, reasons: outputCheck.interventionReasons } }
+        : {}),
+    };
   },
 };
 
@@ -404,23 +427,53 @@ export const handler = async (event: any) => {
     const clientKey = headers["x-api-key"] || headers["X-API-KEY"];
 
     // Basic validation matching SSM parameters
+    // Security Gate: Fail Closed if configuration is missing in non-mock environments
+    if (!config.USE_MOCKS && !config.INTERNAL_KEY) {
+      logger.error("SECURITY_CONFIG_ERROR", new Error("INTERNAL_KEY configuration missing"), { correlationId: (headers["x-correlation-id"] as string) });
+      return {
+        statusCode: 500,
+        body: JSON.stringify({
+          error: "Internal Configuration Error",
+          message: "The security gateway is misconfigured (missing INTERNAL_KEY). Requests are blocked for safety."
+        })
+      };
+    }
+
     if (config.INTERNAL_KEY && clientKey !== config.INTERNAL_KEY) {
-      logger.warn("UNAUTHORIZED_ACCESS_ATTEMPT", { 
+      logger.warn("UNAUTHORIZED_ACCESS_ATTEMPT", undefined, {
         hasHeader: !!clientKey,
-        correlationId: `unauth-${Math.random().toString(36).substring(2, 6)}` 
+        correlationId: (headers["x-correlation-id"] as string) || `unauth-${Math.random().toString(36).substring(2, 6)}`
       });
-      return { 
-        statusCode: 403, 
-        body: JSON.stringify({ 
-          error: "Forbidden", 
-          message: "Unauthorized: Missing or invalid x-api-key header. Check SSM Parameter Store: /ops-hub/api-key" 
-        }) 
+      return {
+        statusCode: 403,
+        body: JSON.stringify({
+          error: "Forbidden",
+          message: "Unauthorized: Missing or invalid x-api-key header. Check SSM Parameter Store: /ops-hub/api-key"
+        })
       };
     }
 
     const body = typeof event.body === "string" ? JSON.parse(event.body) : event.body;
     if (!body?.textMessage) return { statusCode: 400, body: JSON.stringify({ error: "Missing textMessage" }) };
-    const result = await agent.run({ userPrompt: body.textMessage });
+
+    // Thread a single correlationId through guardrail + agent
+    const correlationId = (headers["x-correlation-id"] as string) || `req-${Math.random().toString(36).substring(2, 10)}`;
+
+    // Stage 1: Guardrail input gate (topic, PII, prompt injection)
+    const inputCheck = await checkInput(body.textMessage, correlationId);
+    if (!inputCheck.allowed) {
+      logger.warn("HANDLER_REQUEST_BLOCKED", undefined, { correlationId, reasons: inputCheck.interventionReasons });
+      return {
+        statusCode: 400,
+        body: JSON.stringify({
+          error: "Request blocked",
+          message: inputCheck.blockedMessage,
+          guardrail: { stage: "input", action: inputCheck.action, reasons: inputCheck.interventionReasons },
+        }),
+      };
+    }
+
+    const result = await agent.run({ userPrompt: body.textMessage, correlationId });
     return { statusCode: 200, body: JSON.stringify(result) };
   } catch (error: any) {
     logger.error("EXECUTION_FAILURE", error);

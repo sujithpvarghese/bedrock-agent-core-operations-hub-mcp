@@ -11,7 +11,7 @@ export const logic = async ({ productId }: any, { correlationId }: { correlation
   if (IS_MOCK) {
     if (productId === "prod000") return { content: [{ type: "text", text: JSON.stringify({ productId, webInventory: 0, webPrice: 0, status: "NOT_SELLABLE", reason: ["inventory", "pricing"] })}] };
     if (productId === "prod666") return { content: [{ type: "text", text: JSON.stringify({ productId, webInventory: 100, webPrice: 9.99, status: "SELLABLE", note: "User says price is wrong" }) }] };
-    if (productId === "SKU 1029") return { content: [{ type: "text", text: JSON.stringify({ productId, status: "SELLABLE", note: "Recently fixed" }) }] };
+    if (productId === "SKU 1029" || productId === "sku 1029" || productId === "1029") return { content: [{ type: "text", text: JSON.stringify({ productId, status: "SELLABLE", note: "Recently fixed" }) }] };
     if (productId === "prod_9982") return { content: [{ type: "text", text: JSON.stringify({ productId, webInventory: 0, webPrice: 0, status: "NOT_SELLABLE", reason: ["inventory", "pricing", "pim"] }) }] };
     if (productId === "prod_dlq" || productId === "prod_l2") return { content: [{ type: "text", text: JSON.stringify({ productId, status: "NOT_SELLABLE", reason: ["inventory"] }) }] };
     if (productId === "GFT-404") return { content: [{ type: "text", text: JSON.stringify({ productId, status: "SELLABLE", webPrice: 0, note: "Promotional Gift" }) }] };
