@@ -2,6 +2,7 @@ import { createToolHandler } from "../mcp-server-factory";
 import { TOOL_METADATA } from "../mcp-tools";
 import { logger } from "../logger";
 import { DynamoDBService } from "../services/DynamoDBService";
+import { ApprovalService } from "../services/ApprovalService";
 import { config } from "../config";
 
 const IS_MOCK = process.env.USE_MOCKS !== "false";
@@ -10,9 +11,9 @@ const IS_MOCK = process.env.USE_MOCKS !== "false";
 // Keyed by correlationId to prevent state leakage across different user requests.
 const syncAttempts = new Map<string, number>();
 
-export const logic = async ({ productId, skuId, syncType }: any, { correlationId }: { correlationId: string }) => {
+export const logic = async ({ productId, skuId, syncType, approvalId }: any, { correlationId }: { correlationId: string }) => {
   const target = productId ?? skuId ?? "unknown";
-  logger.info(`MCP_TOOL_CALL_triggerAutoSync_${syncType}`, { target, correlationId });
+  logger.info(`MCP_TOOL_CALL_triggerAutoSync_${syncType}`, { target, correlationId, hasApproval: !!approvalId });
   const syncId = `sync-${syncType}-${Date.now()}`;
 
   // Session-scoped keying
@@ -28,6 +29,18 @@ export const logic = async ({ productId, skuId, syncType }: any, { correlationId
   if (IS_MOCK) {
     if (target === "prod777" && attempt === 1) {
       throw new Error("HTTP_503_SERVICE_UNAVAILABLE: Upstream sync-bus is temporarily overwhelmed.");
+    }
+
+    // HITL Mock Scenario: prod-high-risk always triggers approval unless approvalId is "APP-OK"
+    if (target === "prod-high-risk" && !approvalId) {
+      const mockAppId = "APP-MOCK-123";
+      return {
+        content: [{ type: "text", text: JSON.stringify({
+          status: "REQUIRES_APPROVAL",
+          approvalId: mockAppId,
+          message: "Price drop detected (> 50%). Safety gate triggered. Please approve via action ID APP-MOCK-123."
+        })}]
+      };
     }
 
     if ((target === "prod_dlq" || target === "prod_l2") && attempt >= 3) {
@@ -85,7 +98,44 @@ export const logic = async ({ productId, skuId, syncType }: any, { correlationId
 
     if (syncType === "price") {
       const source = await DynamoDBService.getItem<any>(config.DDB_TABLE_PRICING, { productId });
-      if (source) updatedFields.webPrice = source.authoritativePrice;
+      if (source) {
+        const webPrice = webItem.webPrice;
+        const authorPrice = source.authoritativePrice;
+
+        // 🛡️ HUMAN-IN-THE-LOOP SAFETY GATE
+        // Risk: Price drop > 50% from current web price
+        if (authorPrice < webPrice * 0.5 && !approvalId) {
+          const appId = await ApprovalService.createPendingApproval(correlationId, productId, "PRICE_SYNC", { 
+            from: webPrice, 
+            to: authorPrice 
+          });
+          
+          return {
+            content: [{ type: "text", text: JSON.stringify({
+              status: "REQUIRES_APPROVAL",
+              approvalId: appId,
+              message: `CRITICAL_RISK: The price for ${productId} is dropping by > 50% (from $${webPrice} to $${authorPrice}). Sync blocked. Please review and provide Approval ID: ${appId}`
+            })}]
+          };
+        }
+
+        // If an approvalId was provided, verify it's approved in DynamoDB
+        if (approvalId) {
+          const app = await ApprovalService.getApproval(approvalId);
+          if (!app || app.status !== "APPROVED") {
+            return {
+              content: [{ type: "text", text: JSON.stringify({
+                status: "SYNC_BLOCKED",
+                error: `Provided Approval ID ${approvalId} is currently ${app?.status || "INVALID"}.`
+              })}],
+              isError: true
+            };
+          }
+          logger.info("APPROVAL_VERIFIED_PROCEEDING", { approvalId, productId });
+        }
+
+        updatedFields.webPrice = authorPrice;
+      }
     } 
     else if (syncType === "inventory") {
       // Inventory is per SKU, but we update the product-level webInventory for simplicity in this prototype

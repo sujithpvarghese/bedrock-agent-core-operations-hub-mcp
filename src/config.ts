@@ -24,20 +24,24 @@ const envSchema = z.object({
     return mapping;
   }),
   WEB_DB_LOG_GROUP: z.string().optional(),
-  AGENT_MODEL_ID: z.string().default("us.anthropic.claude-sonnet-4-5-20250929-v1:0"),
+  AGENT_MODEL_ID: z.string().default("us.anthropic.claude-sonnet-4-6"),
   MAX_TOOL_CALLS: z.string().transform((v) => parseInt(v, 10)).default("15"),
-  CLASSIFIER_MODEL_ID: z.string().default("us.anthropic.claude-3-haiku-20240307-v1:0"),
+  CLASSIFIER_MODEL_ID: z.string().default("anthropic.claude-3-haiku-20240307-v1:0"),
   INTERNAL_KEY:      z.string().optional(),
+  REMOTE_AGENT_URL:  z.string().optional(), // Lambda Function URL or API Gateway URL
+
   GUARDRAIL_ID:      z.string().optional(),       // Bedrock Guardrail ID — omit to skip guardrail checks
   GUARDRAIL_VERSION: z.string().default("DRAFT"), // "DRAFT" targets the latest saved version
-  L2_MODEL_ID: z.string().default("us.anthropic.claude-sonnet-4-5-20250929-v1:0"),
-  EVAL_CLAUDE_MODEL_ID: z.string().default("us.anthropic.claude-sonnet-4-5-20250929-v1:0"),
+  L2_MODEL_ID: z.string().default("us.anthropic.claude-sonnet-4-6"),
+  EVAL_CLAUDE_MODEL_ID: z.string().default("us.anthropic.claude-sonnet-4-6"),
   EVAL_NOVA_MODEL_ID: z.string().default("us.amazon.nova-pro-v1:0"),
   ANTHROPIC_VERSION: z.string().default("bedrock-2023-05-31"),
   DDB_TABLE_INVENTORY: z.string().default("DiagInventory-dev"),
   DDB_TABLE_PRICING: z.string().default("DiagPricing-dev"),
   DDB_TABLE_PIM: z.string().default("DiagPim-dev"),
   DDB_TABLE_WEB: z.string().default("DiagWeb-dev"),
+  DDB_TABLE_SESSIONS: z.string().default("DiagSessions-dev"),
+  DDB_TABLE_APPROVALS: z.string().default("DiagApprovals-dev"),
 });
 
 export const config = envSchema.parse(process.env);

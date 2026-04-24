@@ -15,7 +15,7 @@ const ANTHROPIC_VERSION = config.ANTHROPIC_VERSION;
 const JUDGES = [
   { 
     id: 'sonnet', 
-    label: 'Claude 4.5 Sonnet', 
+    label: 'Claude 4.6 Sonnet', 
     modelId: CLAUDE_MODEL_ID,
     type: 'anthropic'
   },
@@ -66,12 +66,18 @@ Respond ONLY with valid JSON: {"score": <0-100>, "reasoning": "<one sentence>"}`
     };
   }
 
-  const response = await bedrockRuntime.send(new InvokeModelCommand({
-    modelId: judge.modelId,
-    contentType: 'application/json',
-    accept: 'application/json',
-    body: JSON.stringify(body)
-  }));
+  let response;
+  try {
+    response = await bedrockRuntime.send(new InvokeModelCommand({
+      modelId: judge.modelId,
+      contentType: 'application/json',
+      accept: 'application/json',
+      body: JSON.stringify(body)
+    }));
+  } catch (err: any) {
+    logger.error("JUDGE_INVOKE_FAILED", err, { modelId: judge.modelId });
+    throw new Error(`Judge [${judge.label}] (${judge.modelId}) failed: ${err.message}`);
+  }
 
   const responseBody = JSON.parse(new TextDecoder().decode(response.body));
   
@@ -98,7 +104,7 @@ async function runEvals() {
   console.log('\n============================================');
   console.log('  🧑‍⚖️  LLM-as-Judge Evaluation Suite');
   console.log(`  📋 Suite   : ${test_suite}`);
-  console.log(`  🤖 Judge   : Claude 4.5 Sonnet (Bedrock)`);
+  console.log(`  🤖 Judge   : Claude 4.6 Sonnet (Bedrock)`);
   console.log(`  ✅ Threshold: ${PASS_THRESHOLD}/100`);
   console.log('============================================\n');
 
@@ -112,23 +118,39 @@ async function runEvals() {
     }
 
     try {
-      // Step 1: Run the agent against the scenario input
-      const result = await agent.run({ userPrompt: scenario.input });
+      let finalSummary = "";
+      const allSteps: any[] = [];
+      const correlationId = `eval-${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
-      // Step 2: Extract real tools from messages (we need to expose or extract them)
-      // I'll add logic to check scenario.expected_tools against the summary or track them.
-      // Re-running logic to get final state
+      let lastResult: any;
+      if (scenario.multi_turn) {
+        // Handle Multi-Turn Conversational Evaluation
+        for (const turn of scenario.multi_turn) {
+          lastResult = await agent.run({ userPrompt: turn.input, correlationId });
+          finalSummary += `Turn Input: ${turn.input}\nTurn Output: ${lastResult.summary}\n\n`;
+          allSteps.push(...lastResult.steps);
+        }
+      } else {
+        // Standard Single-Turn Evaluation
+        lastResult = await agent.run({ userPrompt: scenario.input, correlationId });
+        finalSummary = lastResult.summary;
+        allSteps.push(...lastResult.steps);
+      }
 
       // Step 3: Consensus Judgment
       const judgments = await Promise.all(
-        JUDGES.map(j => getJudgeScore(j, scenario.name, result.summary, scenario.ground_truth))
+        JUDGES.map(j => getJudgeScore(j, scenario.name, finalSummary, scenario.ground_truth))
       );
 
       const avgJudgeScore = judgments.reduce((acc, current) => acc + current.score, 0) / JUDGES.length;
 
       // Step 4: Tool Constraint Check
-      const missedTools = (scenario.expected_tools || []).filter(
-        (t: string) => !result.steps.some(step => step.tool.toLowerCase() === t.toLowerCase())
+      const expectedTools = scenario.multi_turn 
+        ? scenario.multi_turn.flatMap((t: any) => t.expected_tools || [])
+        : (scenario.expected_tools || []);
+      
+      const missedTools = [...new Set(expectedTools)].filter(
+        (t: string) => !allSteps.some(step => step.tool.toLowerCase() === t.toLowerCase())
       );
 
       const toolPenalty = missedTools.length * 10;
@@ -148,12 +170,13 @@ async function runEvals() {
       }
 
       if (!passed) {
-        console.log(`   Agent Output : "${result.summary.slice(0, 200)}..."`);
+        console.log(`   Agent Output : "${lastResult.summary.slice(0, 200)}..."`);
         console.log(`   Ground Truth : "${scenario.ground_truth}"`);
       }
     } catch (err: any) {
       console.log('❌ FAIL (Execution Error)');
-      console.log(`🛑 Error: ${err.stack || err.message}`);
+      console.log(`🛑 Error: ${err.message}`);
+      console.log(`🔍 Context: AgentModel [${config.AGENT_MODEL_ID}], JudgeModel [${CLAUDE_MODEL_ID}]`);
       console.log(`   Ground Truth : "${scenario.ground_truth}"`);
     }
     console.log('--------------------------------------------\n');

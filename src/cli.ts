@@ -35,9 +35,22 @@ const colors = {
   bold: "\x1b[1m",
 };
 
+const sessionId = crypto.randomBytes(8).toString("hex");
+
+// Allow passing remote URL as an argument: npm run cli https://your-url.aws
+const argUrl = process.argv.slice(2).find(arg => arg.startsWith("http"));
+if (argUrl) {
+  (config as any).REMOTE_AGENT_URL = argUrl;
+}
+
+const isRemote = !!config.REMOTE_AGENT_URL;
+
+
 console.log(`${colors.bold}${colors.blue}=================================================${colors.reset}`);
 console.log(`${colors.bold}${colors.cyan}   Bedrock Agent Operations Hub - CLI Client     ${colors.reset}`);
 console.log(`${colors.bold}${colors.blue}=================================================${colors.reset}`);
+console.log(`${colors.yellow}Mode: ${isRemote ? `REMOTE (${config.REMOTE_AGENT_URL})` : "LOCAL (Simulation)"}${colors.reset}`);
+console.log(`${colors.yellow}Session ID: ${sessionId}${colors.reset}`);
 console.log(`${colors.yellow}Type "exit" or "quit" to close the application.${colors.reset}\n`);
 
 function askQuestion() {
@@ -58,16 +71,50 @@ function askQuestion() {
       console.log(`\n${colors.cyan}Agent is thinking...${colors.reset}`);
       const startTime = Date.now();
       
-      const response = await agent.run({ userPrompt: trimmed });
+      let response: any;
+
+      if (isRemote) {
+        // Connect to remote AWS Lambda Function URL
+        const fetchResponse = await fetch(config.REMOTE_AGENT_URL!, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": config.INTERNAL_KEY ?? "",
+            "x-correlation-id": sessionId
+          },
+          body: JSON.stringify({ textMessage: trimmed })
+        });
+
+        if (!fetchResponse.ok) {
+          const errBody = await fetchResponse.text();
+          throw new Error(`Remote agent error (${fetchResponse.status}): ${errBody}`);
+        }
+
+        response = await fetchResponse.json();
+      } else {
+        // Local execution
+        response = await agent.run({ 
+          userPrompt: trimmed, 
+          correlationId: sessionId 
+        });
+      }
       
       const duration = ((Date.now() - startTime) / 1000).toFixed(1);
       
       console.log(`\n${colors.bold}${colors.blue}Agent (Took ${duration}s):${colors.reset}`);
       console.log(response.summary);
       
-      console.log(`\n${colors.yellow}[Diagnostic Tools Used: ${response.steps.length}]${colors.reset}`);
-      if (response.steps.length > 0) {
-        console.log(`${colors.yellow}-> ${response.steps.map(s => s.tool).join(" -> ")}${colors.reset}`);
+      if (response.steps) {
+        console.log(`\n${colors.yellow}[Diagnostic Tools Used: ${response.steps.length}]${colors.reset}`);
+        if (response.steps.length > 0) {
+          console.log(`${colors.yellow}-> ${response.steps.map((s: any) => s.tool).join(" -> ")}${colors.reset}`);
+        }
+      }
+
+      // Special highlight for guardrail interventions
+      if (response.guardrail) {
+        console.log(`${colors.bold}\x1b[31m[Guardrail Intervened: ${response.guardrail.stage}]${colors.reset}`);
+        console.log(`${colors.yellow}Reasons: ${response.guardrail.reasons.join(", ")}${colors.reset}`);
       }
       
     } catch (error: any) {
@@ -81,3 +128,4 @@ function askQuestion() {
 
 // Start the loop
 askQuestion();
+

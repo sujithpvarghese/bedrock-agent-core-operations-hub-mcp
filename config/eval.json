@@ -63,6 +63,21 @@
       "input": "Please fix inventory for prod777.",
       "expected_tools": ["checkWebDatabase", "checkInventory", "triggerAutoSync", "verifyWebState"],
       "ground_truth": "Encountered a transient 503 network error during inventory sync for prod777. The orchestrator silently retried the operation which succeeded. Product is verified as SELLABLE."
+    },
+    {
+      "name": "Advanced HITL Conversational Approval",
+      "description": "Tests multi-turn HITL resolution. Turn 1: High-risk sync blocked. Turn 2: User says 'Yes', agent must find ID, approve, and finish.",
+      "multi_turn": [
+        { 
+          "input": "Sync the price for prod-high-risk", 
+          "expected_tools": ["checkWebDatabase", "checkPricing", "triggerAutoSync"] 
+        },
+        { 
+          "input": "Yes, go ahead and do it.", 
+          "expected_tools": ["listPendingApprovals", "approveAction", "triggerAutoSync", "verifyWebState"] 
+        }
+      ],
+      "ground_truth": "The agent identifies a high-risk price change (over 50% drop) and blocks the sync. Upon receiving verbal approval ('Yes'), the agent successfully retrieves the pending approval ID, formally approves the action, and completes the sync."
     }
   ]
 }

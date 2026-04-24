@@ -10,7 +10,7 @@ export const logic = async ({ productId }: any, { correlationId }: { correlation
     // Return the "corrected" state for verification
     const isGift = productId?.startsWith("GFT-") || productId?.startsWith("SAMPLE-");
     const webPrice = isGift ? 0
-      : (productId === "prod666" || productId === "prod_9982" || productId === "prod000") ? 24.99
+      : (productId === "prod666" || productId === "prod_9982" || productId === "prod000" || productId === "prod-high-risk") ? 24.99
       : 199.99;
     const webInventory = (productId === "prod000" || productId === "prod_dlq" || productId === "prod_9982" || productId === "prod777") ? 150 : 100;
     

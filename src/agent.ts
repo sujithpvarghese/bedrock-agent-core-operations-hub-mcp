@@ -14,6 +14,8 @@ import {
   storeMemory,
   extractProductId,
 } from "./memory";
+import { SessionService, ChatMessage } from "./services/SessionService";
+import { ApprovalService } from "./services/ApprovalService";
 import { config } from "./config";
 import { logger } from "./logger";
 import { TOOL_METADATA } from "./mcp-tools";
@@ -98,20 +100,30 @@ const BASE_SYSTEM_PROMPT = `
   - Anticipate which systems are likely broken based on history
   - Apply known resolutions for recurring error codes immediately
   - If episodic memory contains a successful resolution for this exact productId within the last 7 days — skip Steps 1-2 and go straight to Step 3 (sync) then Step 4 (verify)
+
+  ── HUMAN-IN-THE-LOOP (HITL) RESOLUTION ──
+  If a tool returns REQUIRES_APPROVAL, you must inform the user and provide the approvalId.
+  If a user later says 'yes', 'do it', 'go ahead', or otherwise gives verbal consent:
+  1. Call listPendingApprovals() to find the approvalId for the current session.
+  2. Call approveAction(approvalId) to formally mark it as approved in the database.
+  3. Re-call the original tool (e.g. triggerAutoSync) passing the approvalId as an argument.
+  4. Only summarize the success once all three steps are complete.
 `;
 
 // Injects actual retrieved episodic memories into the system prompt.
-function buildSystemPrompt(memories: string): string {
-  if (!memories) return BASE_SYSTEM_PROMPT;
+function buildSystemPrompt(memories: string, history: ChatMessage[]): string {
+  let prompt = BASE_SYSTEM_PROMPT;
 
-  return `${BASE_SYSTEM_PROMPT}
+  if (history.length > 0) {
+    const historyText = history.map(m => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join("\n");
+    prompt += `\n\n─────────────────────────────────────\nRECENT CONVERSATION HISTORY:\n${historyText}\n─────────────────────────────────────`;
+  }
 
-  ─────────────────────────────────────
-  EPISODIC MEMORY — retrieved from past interactions with this product:
-  ${memories}
-  
-  Use the above history to skip unnecessary steps and apply known fixes faster.
-  ─────────────────────────────────────`;
+  if (memories) {
+    prompt += `\n\n─────────────────────────────────────\nEPISODIC MEMORY — retrieved from past interactions with this product:\n${memories}\n\nUse the above history to skip unnecessary steps and apply known fixes faster.\n─────────────────────────────────────`;
+  }
+
+  return prompt;
 }
 // Simulation logic moved to src/mcp-server/ files.
 
@@ -381,7 +393,12 @@ export const agent = {
     const toolsCalled: string[] = [];
     const toolResultsLog: string[] = [];   // raw tool outputs — fed to the grounding check
     const productId = extractProductId(userPrompt);
-    const memories = await getRelevantMemories(productId);
+    
+    // Load Shared Context
+    const [memories, history] = await Promise.all([
+      getRelevantMemories(productId),
+      SessionService.getHistory(correlationId)
+    ]);
 
     // Phase 0: Lightweight Intent Classification (Haiku)
     let systemPromptHint = "";
@@ -390,8 +407,12 @@ export const agent = {
       systemPromptHint = formatHint(classification);
     }
 
-    const systemPrompt = buildSystemPrompt(memories) + systemPromptHint;
+    const systemPrompt = buildSystemPrompt(memories, history) + systemPromptHint;
     const coreAgent = await buildAgent(systemPrompt, toolsCalled, toolResultsLog, correlationId);
+    
+    // Auto-save user message to history
+    await SessionService.saveMessage(correlationId, "user", userPrompt);
+
     const result = await coreAgent.invoke(userPrompt);
     let summary = result.toString();
 
@@ -403,13 +424,17 @@ export const agent = {
       logger.warn("AGENT_SUMMARY_UNGROUNDED", undefined, { correlationId, reasons: outputCheck.interventionReasons });
     }
 
-    await storeMemory({
-      productId,
-      summary,
-      toolsUsed: toolsCalled,
-      finalStatus: extractFinalStatus(summary),
-      errorCodes: extractErrorCodes(summary),
-    });
+    // Capture state for history and memory
+    await Promise.all([
+      SessionService.saveMessage(correlationId, "assistant", summary),
+      storeMemory({
+        productId,
+        summary,
+        toolsUsed: toolsCalled,
+        finalStatus: extractFinalStatus(summary),
+        errorCodes: extractErrorCodes(summary),
+      })
+    ]);
 
     return {
       summary,

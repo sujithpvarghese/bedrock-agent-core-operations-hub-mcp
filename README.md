@@ -2,7 +2,7 @@
 
 > **Autonomous AI Operations Infrastructure for Enterprise E-Commerce.**
 > 
-> *Validated against 9 scenario types using an **LLM-as-Judge Consensus** framework and a decentralized MCP mesh. Achieved 100% Pass Rate with a 96% average Consensus Score across two independent models (Claude 4.5 Sonnet & Amazon Nova Pro).*
+> *Validated against 10 scenario types using an **LLM-as-Judge Consensus** framework and a decentralized MCP mesh. Achieved 100% Pass Rate with a 93% average Consensus Score across two independent models (Claude 4.6 Sonnet & Amazon Nova Pro).*
 
 [![TypeScript](https://img.shields.io/badge/Language-TypeScript-blue.svg)](https://www.typescriptlang.org/)
 [![Node.js 22](https://img.shields.io/badge/Node.js-22.x-green.svg)](https://nodejs.org/)
@@ -51,6 +51,9 @@ The system leverages a stateful **Episodic Memory** bridge to bypass redundant d
 
 ### 🛡️ Stealth Resilience
 Implemented a hook-layer retry mechanism that intercepts transient 5xx errors and performs **silent recoveries**. This ensures that minor network blips do not derail the agent's reasoning chain, allowing for optimized task completion rates in unstable production environments.
+
+### ⚖️ Stateful HITL Safety Gates
+For high-risk operations (e.g., massive price drops), the system implements a **Stateful Human-in-the-Loop (HITL)** approval flow. Pending actions are persisted in DynamoDB and indexed for sub-second retrieval via **Global Secondary Indices (GSI)**. This allows the agent to pause, wait for user authorization across turns, and resume execution with cryptographic-like verification of the approval token.
 
 ### 🛡️ Two-Stage AI Safety Gate (Bedrock Guardrails)
 To ensure enterprise-grade safety, the system implements a native **Bedrock Guardrail** policy (configured in `serverless.yml`). This provides a deterministic safety perimeter around the LLM:
@@ -109,8 +112,8 @@ sls deploy --stage dev
 The Bedrock Operations Hub is validated against 9 distinct scenario types using a sophisticated **LLM-as-Judge Consensus** framework. Two independent models—**Claude 4.5 Sonnet** and **Amazon Nova Pro**—act as judges, scoring each agent run on **semantic accuracy (0–100)**. The final score is a mean average of both judges, minus any deterministic tool-use penalties.
 
 **Current Performance Baseline:**
-- **Pass Rate**: 100% (9/9 scenarios)
-- **Average Consensus Score**: 96/100
+- **Pass Rate**: 100% (10/10 scenarios)
+- **Average Consensus Score**: 93/100
 - **Deterministic Tool Penalty**: -10 pts per missed expected tool invocation
 
 <details>
@@ -158,14 +161,19 @@ The Bedrock Operations Hub is validated against 9 distinct scenario types using 
 🧑‍⚖️  Nova     : Perfectly aligns with ground truth for GFT- SKU logic.
 
 📝 [Scenario 9: Transient Error & Silent Recovery]
-✅ PASS | 📊 Consensus: 83/100 (Claude: 85, Nova: 80, Pen: -0)
-🧑‍⚖️  Claude   : Correctly remediated 503 error via silent retry but missed summary mention.
-🧑‍⚖️  Nova     : Correctly identified the issue but did not mention the silent recovery.
+✅ PASS | 📊 Consensus: 95/100 (Claude: 95, Nova: 95, Pen: -0)
+🧑‍⚖️  Claude   : Correctly identified the transient 503 error and verified the automatic retry success.
+🧑‍⚖️  Nova     : Accurately identified the issue and verified the successful remediation.
+
+📝 [Scenario 10: Advanced HITL Conversational Approval]
+✅ PASS | 📊 Consensus: 95/100 (Claude: 95, Nova: 95, Pen: -0)
+🧑‍⚖️  Claude   : Successfully blocked high-risk price drop and resumed upon verified verbal approval.
+🧑‍⚖️  Nova     : Accurate identification of risk, requested approval, and verified completion.
 
 ============================================
   🏆 FINAL RESULTS
-  Pass Rate  : 100% (9/9 scenarios)
-  Avg Score  : 96/100
+  Pass Rate  : 100% (10/10 scenarios)
+  Avg Score  : 93/100
 ============================================
 ```
 

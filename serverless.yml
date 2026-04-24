@@ -28,12 +28,14 @@ provider:
           Action: [bedrock-agentcore:BatchCreateMemoryRecords, bedrock-agentcore:RetrieveMemoryRecords, bedrock-agentcore:ListMemoryRecords, bedrock-agentcore:BatchDeleteMemoryRecords]
           Resource: [!Sub "arn:aws:bedrock-agentcore:${aws:region}:${aws:accountId}:memory/${self:custom.memoryId}"]
         - Effect: Allow
-          Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:Query, dynamodb:UpdateItem]
+          Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:Query, dynamodb:UpdateItem, dynamodb:DeleteItem]
           Resource: 
             - !GetAtt InventoryTable.Arn
             - !GetAtt PricingTable.Arn
             - !GetAtt PimTable.Arn
             - !GetAtt WebTable.Arn
+            - !GetAtt SessionsTable.Arn
+            - !GetAtt ApprovalsTable.Arn
          # L2 Detective sub-agent needs CloudWatch Logs access for root cause analysis
         - Effect: Allow
           Action: [logs:FilterLogEvents, logs:DescribeLogStreams, logs:StartQuery, logs:GetQueryResults]
@@ -58,6 +60,10 @@ functions:
       AGENTCORE_MEMORY_ID: ${self:custom.memoryId}
       GUARDRAIL_ID: !GetAtt OperationsHubGuardrail.GuardrailId
       GUARDRAIL_VERSION: DRAFT
+      DDB_TABLE_SESSIONS: !Ref SessionsTable
+      DDB_TABLE_APPROVALS: !Ref ApprovalsTable
+      DDB_TABLE_SESSIONS: !Ref SessionsTable
+      DDB_TABLE_APPROVALS: !Ref ApprovalsTable
     url: true
 
   # ── Distributed MCP Tool Services ─────────────────────────────
@@ -136,6 +142,21 @@ functions:
       DDB_TABLE_PIM: !Ref PimTable
       DDB_TABLE_WEB: !Ref WebTable
     # IAM: inherits provider-level role (Bedrock + CloudWatch Logs permissions added there)
+
+  approvalListService:
+    handler: src/mcp-server/ApprovalListService.handler
+    url: true
+    memorySize: 128
+    environment:
+      DDB_TABLE_APPROVALS: !Ref ApprovalsTable
+
+  approvalUpdateService:
+    handler: src/mcp-server/ApprovalUpdateService.handler
+    url: true
+    memorySize: 128
+    environment:
+      DDB_TABLE_APPROVALS: !Ref ApprovalsTable
+
   # ── specialized status hub ─────────────────────────────
   statusHub:
     handler: src/mcp-server/status-hub.handler
@@ -195,6 +216,45 @@ resources:
           - AttributeName: productId
             KeyType: HASH
         BillingMode: PAY_PER_REQUEST
+
+    SessionsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: DiagSessions-${self:provider.stage}
+        AttributeDefinitions:
+          - AttributeName: sessionId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: sessionId
+            KeyType: HASH
+        BillingMode: PAY_PER_REQUEST
+        TimeToLiveSpecification:
+          AttributeName: ttl
+          Enabled: true
+
+    ApprovalsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: DiagApprovals-${self:provider.stage}
+        AttributeDefinitions:
+          - AttributeName: approvalId
+            AttributeType: S
+          - AttributeName: sessionId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: approvalId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: SessionIndex
+            KeySchema:
+              - AttributeName: sessionId
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+        BillingMode: PAY_PER_REQUEST
+        TimeToLiveSpecification:
+          AttributeName: ttl
+          Enabled: true
 
     OperationsHubGuardrail:
       Type: AWS::Bedrock::Guardrail
@@ -286,7 +346,7 @@ resources:
 custom:
   # Reusable URL list
   mcpServerUrls:
-    Fn::Sub: "webDatabaseService:${WebDatabaseServiceLambdaFunctionUrl.FunctionUrl},inventoryService:${InventoryServiceLambdaFunctionUrl.FunctionUrl},pricingService:${PricingServiceLambdaFunctionUrl.FunctionUrl},pimService:${PimServiceLambdaFunctionUrl.FunctionUrl},dlqService:${DlqServiceLambdaFunctionUrl.FunctionUrl},guideService:${GuideServiceLambdaFunctionUrl.FunctionUrl},syncService:${SyncServiceLambdaFunctionUrl.FunctionUrl},verificationService:${VerificationServiceLambdaFunctionUrl.FunctionUrl},memoryListService:${MemoryListServiceLambdaFunctionUrl.FunctionUrl},memoryDeleteService:${MemoryDeleteServiceLambdaFunctionUrl.FunctionUrl},l2DetectiveService:${L2DetectiveServiceLambdaFunctionUrl.FunctionUrl}"
+    Fn::Sub: "webDatabaseService:${WebDatabaseServiceLambdaFunctionUrl.FunctionUrl},inventoryService:${InventoryServiceLambdaFunctionUrl.FunctionUrl},pricingService:${PricingServiceLambdaFunctionUrl.FunctionUrl},pimService:${PimServiceLambdaFunctionUrl.FunctionUrl},dlqService:${DlqServiceLambdaFunctionUrl.FunctionUrl},guideService:${GuideServiceLambdaFunctionUrl.FunctionUrl},syncService:${SyncServiceLambdaFunctionUrl.FunctionUrl},verificationService:${VerificationServiceLambdaFunctionUrl.FunctionUrl},memoryListService:${MemoryListServiceLambdaFunctionUrl.FunctionUrl},memoryDeleteService:${MemoryDeleteServiceLambdaFunctionUrl.FunctionUrl},l2DetectiveService:${L2DetectiveServiceLambdaFunctionUrl.FunctionUrl},approvalListService:${ApprovalListServiceLambdaFunctionUrl.FunctionUrl},approvalUpdateService:${ApprovalUpdateServiceLambdaFunctionUrl.FunctionUrl}"
   memoryId: ${ssm:/ops-hub/memory-id, 'OperationsHubMemory'} # Pulls from AWS SSM Parameter store
   useMocks:
     dev: "true"

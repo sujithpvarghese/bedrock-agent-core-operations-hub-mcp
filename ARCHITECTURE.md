@@ -112,6 +112,40 @@ sequenceDiagram
 
 ---
 
+## 🛡️ Stateful Human-in-the-Loop (HITL) Workflow
+
+For high-risk operations (e.g., price drops > 50%), the architecture enforces a **Human-in-the-Loop (HITL) Safety Gate**. Unlike standard retries, this is a conversational state machine that persists across multiple user interactions.
+
+
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Agent
+    participant Sync as Sync Service
+    participant DB as DynamoDB (GSI)
+    
+    User->>Agent: "Fix price for prod-high-risk"
+    Agent->>Sync: triggerAutoSync(price)
+    Sync->>DB: Create PENDING Approval
+    Sync-->>Agent: REQUIRES_APPROVAL (app-123)
+    Agent-->>User: "This is high risk. Please approve app-123."
+    
+    User->>Agent: "Yes, I approve."
+    Agent->>Agent: Retrieve pending approvals via GSI
+    Agent->>DB: Update Status -> APPROVED
+    Agent->>Sync: triggerAutoSync(price, app-123)
+    Sync->>DB: Verify APPROVED status
+    Sync->>Sync: Execute Sync
+    Sync-->>Agent: SYNC_COMPLETE
+    Agent-->>User: "Sync successful."
+```
+
+### Database Optimization: Why GSI?
+To support multi-client agentic sessions at scale, the `ApprovalsTable` is optimized with a **Global Secondary Index** on `sessionId`. This allows the agent to instantly retrieve all pending actions for the current conversation context without performing expensive and non-performant table scans, maintaining sub-second residency for the reasoning loop.
+
+---
+
 ## 🕵️‍♂️ Agent-to-Agent (A2A) Encapsulation
 
 **Problem:** Giving a single multi-purpose LLM access to 50 tools leads to massive context bloat (expensive token usage) and high risk of "Tool Hallucination" (using a Jira checking tool when asked to check the price).

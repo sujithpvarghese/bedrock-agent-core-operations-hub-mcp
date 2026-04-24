@@ -67,6 +67,7 @@ export const TOOL_METADATA: Record<string, ToolMetadata> = {
       productId: z.string().optional().describe("Product ID to sync."),
       skuId: z.string().optional().describe("SKU ID to sync (for inventory)."),
       syncType: z.enum(["inventory", "price", "pim"]).describe("Which upstream system to sync."),
+      approvalId: z.string().optional().describe("Approval ID provided by the human for high-risk operations."),
     }),
   },
 
@@ -96,6 +97,20 @@ export const TOOL_METADATA: Record<string, ToolMetadata> = {
     inputSchema: z.object({
       errorCode: z.string().describe("The error code that caused repeated sync failures."),
       targetProduct: z.string().optional().describe("The product ID being investigated."),
+    }),
+  },
+  
+  approvalListService: {
+    name: "listPendingApprovals",
+    description: "Lists all actions currently waiting for human approval in the current session. Call this when a user says 'yes', 'do it', or 'go ahead'.",
+    inputSchema: z.object({}),
+  },
+
+  approvalUpdateService: {
+    name: "approveAction",
+    description: "Formally marks a pending action as APPROVED so it can be executed. Call this AFTER finding the approvalId via listPendingApprovals.",
+    inputSchema: z.object({
+      approvalId: z.string().describe("The Approval ID (e.g. APP-ABCD) to confirm."),
     }),
   },
 };
